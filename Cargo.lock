@@ -1634,7 +1634,7 @@ dependencies = [
 
 [[package]]
 name = "furet"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "furet-moteur",

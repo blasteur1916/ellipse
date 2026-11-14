@@ -43,6 +43,8 @@ pub struct Bilan {
     pub fichiers: usize,
     pub secondes_audio: f64,
     pub duree: f64,
+    /// Arrêtée avant la fin (pause, arrêt) : le reste sera transcrit la prochaine fois.
+    pub interrompue: bool,
 }
 
 /// Transcriptions en parallèle et cœurs par transcription, selon le processeur :
@@ -60,6 +62,7 @@ struct Travail {
     tranches: Vec<(f64, f64)>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn transcrire(
     base: &mut Connection,
     modele: &Client,
@@ -67,12 +70,16 @@ pub fn transcrire(
     racine: &Path,
     journal: &Path,
     arret: &Arc<AtomicBool>,
+    suspendre: &Arc<AtomicBool>,
     suivi: Option<&Suivi>,
 ) -> Result<Option<Bilan>> {
     let candidats = base::a_transcrire(base)?;
     if candidats.is_empty() {
         return Ok(None);
     }
+    // L'avancement compte aussi ce qui a été transcrit les fois précédentes.
+    let deja = base::nb_transcrits(base)?;
+    let a_faire = candidats.len();
     let debut = Instant::now();
     let phrases = |liste: &[&str]| -> Result<Vec<Vec<f32>>> {
         modele.vecteurs(liste.iter().map(|p| Value::String(format!("task: search result | query: {p}"))).collect())
@@ -105,9 +112,10 @@ pub fn transcrire(
         "\n== Passe 2 : transcription ==\n{avec_parole} tranche(s) de 30 s avec de la parole sur {tranches} ; le reste (musique, bruit) est sauté"
     );
     let fichiers = travaux.len();
-    let bilan = |duree| Bilan { fichiers, secondes_audio, duree };
+    let sans_parole = a_faire - fichiers;
+    let bilan = |duree, interrompue| Bilan { fichiers, secondes_audio, duree, interrompue };
     if travaux.is_empty() {
-        return Ok(Some(bilan(debut.elapsed().as_secs_f64())));
+        return Ok(Some(bilan(debut.elapsed().as_secs_f64(), false)));
     }
 
     let (requetes, coeurs) = reglage;
@@ -122,13 +130,14 @@ pub fn transcrire(
     let suivant = Arc::new(AtomicUsize::new(0));
     let (envoi, reception) = mpsc::channel::<(usize, Result<Vec<(f64, f64, String)>>, f64)>();
     for _ in 0..requetes {
-        let (travaux, suivant, envoi, client, arret) =
-            (travaux.clone(), suivant.clone(), envoi.clone(), transcripteur.client(), arret.clone());
+        let (travaux, suivant, envoi, client, arret, suspendre) =
+            (travaux.clone(), suivant.clone(), envoi.clone(), transcripteur.client(), arret.clone(), suspendre.clone());
         std::thread::spawn(move || {
             crate::processus::fil_en_priorite_basse();
             loop {
-                // Arrêt demandé : les fichiers déjà transcrits sont enregistrés, les autres le seront la prochaine fois.
-                if arret.load(Ordering::Relaxed) {
+                // Arrêt ou pause : les fichiers déjà transcrits sont enregistrés, les autres le seront la prochaine
+                // fois (en pause, rien ne doit rester chargé : le transcripteur et le modèle sont libérés).
+                if arret.load(Ordering::Relaxed) || suspendre.load(Ordering::Relaxed) {
                     break;
                 }
                 let i = suivant.fetch_add(1, Ordering::Relaxed);
@@ -155,11 +164,13 @@ pub fn transcrire(
     drop(envoi);
 
     let total = travaux.len();
+    let mut recus = 0;
     for (k, (i, resultat, ms)) in reception.into_iter().enumerate() {
+        recus += 1;
         let t = &travaux[i];
         let rang = format!("[{:>w$}/{total}]", k + 1, w = total.to_string().len());
         if let Some(s) = suivi {
-            s(Progres::Transcription { faits: k + 1, total });
+            s(Progres::Transcription { faits: deja + sans_parole + k + 1, total: deja + a_faire });
         }
         match resultat.and_then(|textes| {
             let titre = Path::new(&t.chemin).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -177,5 +188,5 @@ pub fn transcrire(
             Err(e) => println!("{rang} transcription ERREUR  {} : {e:#}", t.chemin),
         }
     }
-    Ok(Some(bilan(debut.elapsed().as_secs_f64())))
+    Ok(Some(bilan(debut.elapsed().as_secs_f64(), recus < total)))
 }

@@ -95,11 +95,14 @@ fn main() -> Result<()> {
                     fils,
                     jetons_image,
                     arret: Default::default(),
+                    suspendre: Default::default(),
+                    reprise: false,
                     suivi: None,
                     bibliotheques,
                     noms: true,
                 },
             )
+            .map(|_| ())
         }
         Commande::Cherche { texte, n, genre, cpu, seuil } => chercher(&cli.racine, &chemin_base, texte, n, genre, cpu, seuil),
         Commande::Stats => stats(&chemin_base),

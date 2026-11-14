@@ -15,9 +15,9 @@ use rusqlite::Connection;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{self, SyncSender};
-use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Instant, UNIX_EPOCH};
+use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
+use std::sync::{Arc, Condvar, LazyLock, Mutex};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 /// Un lot envoyé au modèle : au plus 8 morceaux et environ 4 000 jetons.
 const LOT_MORCEAUX: usize = 8;
@@ -43,6 +43,20 @@ const DOSSIERS_SYSTEME: [&str; 7] =
 const BIBLIOTHEQUE_FICHIERS: usize = 3000;
 /// Un fichier en erreur et inchangé n'est réessayé qu'après ce délai (un format illisible le reste).
 const REESSAI_ERREUR_S: i64 = 7 * 86_400;
+/// Après une interruption, le parcours des dossiers est repris tel quel s'il a moins de ce temps : la reprise
+/// ne repasse pas sur les disques (1,8 million de fichiers chez l'utilisateur, une trentaine de secondes).
+const PARCOURS_VALIDE: Duration = Duration::from_secs(3600);
+/// En pause, les fils vérifient à ce rythme s'ils peuvent reprendre.
+const ATTENTE_PAUSE: Duration = Duration::from_millis(300);
+
+/// Le dernier parcours de chaque dossier (et quand il a été fait), gardé tant que l'indexation n'est pas
+/// allée au bout.
+type Parcours = HashMap<PathBuf, (Instant, Arc<Liste>)>;
+static PARCOURS: LazyLock<Mutex<Parcours>> = LazyLock::new(Default::default);
+
+fn parcours() -> std::sync::MutexGuard<'static, Parcours> {
+    PARCOURS.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// L'ordre de lecture : ce que l'utilisateur a fait ou rangé lui-même d'abord, le code à la fin.
 fn priorite(genre: Genre) -> u8 {
@@ -125,6 +139,26 @@ pub enum Progres {
 
 pub type Suivi = Arc<dyn Fn(Progres) + Send + Sync>;
 
+/// Comment s'est finie une indexation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fin {
+    /// Tout est lu, transcrit et analysé.
+    Complete,
+    /// Arrêtée ou mise en pause avant la fin : ce qui est fait reste fait, le reste attend la prochaine fois.
+    Interrompue,
+}
+
+/// La fin d'une indexation. Complète, le parcours gardé ne sert plus : la prochaine fois, on repasse sur les
+/// disques pour trouver les nouveaux fichiers.
+fn fin(complete: bool) -> Fin {
+    if complete {
+        parcours().clear();
+        Fin::Complete
+    } else {
+        Fin::Interrompue
+    }
+}
+
 pub struct Options {
     pub cpu: bool,
     pub tout: bool,
@@ -139,6 +173,12 @@ pub struct Options {
     /// Mis à vrai, l'indexation finit les fichiers en cours puis s'arrête (pause, jeu, batterie, sortie).
     /// Ce qui est fait reste fait : la prochaine fois, elle reprend où elle en était.
     pub arret: Arc<AtomicBool>,
+    /// Vrai pendant une pause (jeu, batterie, pause demandée) : la lecture s'interrompt sans rien perdre, le
+    /// modèle est arrêté (la carte graphique est libre), et tout reprend où c'en était quand elle repasse à faux.
+    /// La transcription et les visages, eux, s'arrêtent : ils reprendront à la prochaine indexation.
+    pub suspendre: Arc<AtomicBool>,
+    /// Reprendre le parcours gardé par l'indexation précédente, s'il est récent (au lieu de reparcourir).
+    pub reprise: bool,
     pub suivi: Option<Suivi>,
     /// Lire aussi le code des grandes bibliothèques (moteurs de jeu, SDK…) au lieu de ne garder que leurs noms.
     pub bibliotheques: bool,
@@ -147,11 +187,14 @@ pub struct Options {
     pub noms: bool,
 }
 
+#[derive(Clone)]
 struct Travail {
     chemin: PathBuf,
     genre: Genre,
     taille: u64,
     modifie: i64,
+    /// Seulement en ligne (OneDrive, téléphone relié) : le lire le téléchargerait.
+    en_ligne: bool,
 }
 
 /// Ce qu'un fil de préparation renvoie pour un fichier.
@@ -165,6 +208,8 @@ struct Prepare {
 struct Lot {
     morceaux: Vec<(usize, usize)>,
     poids: usize,
+    /// Le serveur à qui il a été envoyé (son numéro : il change à chaque relance après une pause).
+    serveur: usize,
 }
 
 /// Ce que reçoit le fil principal.
@@ -172,7 +217,9 @@ enum Evenement {
     Pret(Prepare),
     /// Un fil de préparation a fini (plus de fichiers, ou arrêt demandé).
     FilFini,
-    Vecteurs { lot: Lot, ms: f64, resultat: Result<Vec<Vec<f32>>> },
+    /// Les vecteurs d'un lot. En cas d'échec, ses entrées reviennent : si le serveur a été arrêté par une
+    /// pause, le lot sera renvoyé à la reprise.
+    Vecteurs { lot: Lot, ms: f64, resultat: Result<Vec<Vec<f32>>>, entrees: Vec<serde_json::Value> },
 }
 
 /// Un fichier préparé qui attend ses vecteurs.
@@ -292,7 +339,14 @@ fn lister(dossier: &Path, avec_noms: bool, arret: &AtomicBool) -> Liste {
                                             .ok()
                                             .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
                                             .map_or(0, |d| d.as_secs() as i64);
-                                        fichiers.push(Travail { chemin: chemin_fichier, genre, taille: infos.len(), modifie });
+                                        // Les attributs viennent aussi avec la liste : aucun fichier n'est ouvert.
+                                        #[cfg(windows)]
+                                        let en_ligne = fichiers::attributs_en_ligne(
+                                            std::os::windows::fs::MetadataExt::file_attributes(&infos),
+                                        );
+                                        #[cfg(not(windows))]
+                                        let en_ligne = false;
+                                        fichiers.push(Travail { chemin: chemin_fichier, genre, taille: infos.len(), modifie, en_ligne });
                                     }
                                 }
                                 if cache {
@@ -345,7 +399,7 @@ pub fn parcours_detaille(dossier: &Path) -> Vec<(PathBuf, &'static str, u64, boo
 
 /// Indexe `dossiers` en une seule session (un seul démarrage du modèle). Les fichiers inchangés depuis la
 /// dernière fois sont sautés : relancer après un arrêt reprend où on en était.
-pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Options) -> Result<()> {
+pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Options) -> Result<Fin> {
     crate::processus::definir_racine(racine);
     let suivre = |p: Progres| {
         if let Some(s) = &opt.suivi {
@@ -368,11 +422,29 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
             println!("Dossier introuvable pour l'instant, laissé tel quel : {}", dossier.display());
             continue;
         }
-        let liste = lister(dossier, opt.noms, &opt.arret);
-        // Arrêté en cours de route : la liste est incomplète, on ne peut rien en conclure.
-        if opt.arret.load(Ordering::Relaxed) {
-            return Ok(());
-        }
+        let recent = if opt.reprise && !opt.noms {
+            parcours().get(dossier).filter(|(quand, _)| quand.elapsed() < PARCOURS_VALIDE).map(|(_, l)| l.clone())
+        } else {
+            parcours().remove(dossier);
+            None
+        };
+        let liste = match recent {
+            Some(l) => {
+                println!("Reprise : parcours récent de {} gardé", dossier.display());
+                l
+            }
+            None => {
+                let l = Arc::new(lister(dossier, opt.noms, &opt.arret));
+                // Arrêté en cours de route : la liste est incomplète, on ne peut rien en conclure.
+                if opt.arret.load(Ordering::Relaxed) {
+                    return Ok(Fin::Interrompue);
+                }
+                if !opt.noms {
+                    parcours().insert(dossier.clone(), (Instant::now(), l.clone()));
+                }
+                l
+            }
+        };
         let prefixe = dossier.to_string_lossy();
         if opt.noms {
             // Tous les noms, quel que soit le type : le prototype retrouve ainsi n'importe quel fichier par son nom.
@@ -399,16 +471,16 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
         // sort de l'index (il noyait les vrais résultats sous du code de moteur de jeu).
         let dans_bibliotheque = if opt.bibliotheques { HashMap::new() } else { bibliotheques(dossier, &liste.dossiers) };
         let mut a_oublier = Vec::new();
-        for t in liste.fichiers {
+        for t in &liste.fichiers {
             let en_bibliotheque =
-                de_bibliotheque(&t) && t.chemin.parent().is_some_and(|p| dans_bibliotheque.get(p).copied().unwrap_or(false));
+                de_bibliotheque(t) && t.chemin.parent().is_some_and(|p| dans_bibliotheque.get(p).copied().unwrap_or(false));
             if en_bibliotheque {
                 de_bibliotheques += 1;
                 if let Some(e) = etats.get(t.chemin.to_string_lossy().as_ref()) {
                     a_oublier.push(e.id);
                 }
             } else {
-                trouves.push(t);
+                trouves.push(t.clone());
             }
         }
         if !a_oublier.is_empty() {
@@ -416,7 +488,7 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
             // Par paquets : l'appli peut lire l'index entre deux, et un arrêt garde ce qui est fait.
             for paquet in a_oublier.chunks(2000) {
                 if opt.arret.load(Ordering::Relaxed) {
-                    return Ok(());
+                    return Ok(Fin::Interrompue);
                 }
                 base::oublier(&mut base, paquet)?;
             }
@@ -435,6 +507,7 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
     let mut inchanges = 0;
     let mut minuscules = 0;
     let mut illisibles = 0;
+    let mut en_ligne = 0;
     let maintenant = std::time::SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
     for t in trouves {
         let etat = etats.get(t.chemin.to_string_lossy().as_ref()).filter(|e| e.taille == t.taille as i64 && e.modifie == t.modifie);
@@ -447,6 +520,9 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
         } else if etat.is_some_and(|e| e.essai.is_some_and(|quand| maintenant - quand < REESSAI_ERREUR_S)) {
             // Illisible la dernière fois et inchangé depuis : inutile de réessayer à chaque passage.
             illisibles += 1;
+        } else if t.en_ligne {
+            // Seulement en ligne : trouvable par son nom ; lu le jour où il est sur le disque.
+            en_ligne += 1;
         } else {
             travaux.push(t);
         }
@@ -454,6 +530,9 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
     drop(etats);
     if illisibles > 0 {
         println!("{illisibles} fichier(s) illisible(s) la dernière fois et inchangé(s) : pas réessayé(s) avant quelques jours");
+    }
+    if en_ligne > 0 {
+        println!("{en_ligne} fichier(s) seulement en ligne (OneDrive, téléphone…) : seulement par leur nom, rien n'est téléchargé");
     }
     // Les documents, les photos et les vidéos d'abord ; le code à la fin (l'ordre des chemins est gardé dans chaque groupe).
     travaux.sort_by_key(|t| priorite(t.genre));
@@ -463,13 +542,17 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
     if inchanges > 0 {
         println!("{inchanges} fichier(s) inchangé(s) depuis la dernière fois, ignoré(s) (--tout pour les refaire)");
     }
+    // L'avancement compte ce qui a été lu les fois précédentes : il ne repart pas de zéro à chaque reprise.
+    let deja = inchanges + illisibles;
     let reste_a_transcrire = opt.avec_transcription && !base::a_transcrire(&base)?.is_empty();
     if travaux.is_empty() && !reste_a_transcrire {
         // Rien à lire : pas besoin du modèle. Les visages et les lieux en retard (option activée après coup)
         // se font quand même.
+        let mut complete = true;
         if opt.avec_visages && visages::modeles_presents(racine) {
-            if let Err(e) = passe_visages(&mut base, racine, &opt) {
-                println!("Visages : {e:#}");
+            match passe_visages(&mut base, racine, &opt) {
+                Ok((_, toutes)) => complete &= toutes,
+                Err(e) => println!("Visages : {e:#}"),
             }
         }
         if !opt.arret.load(Ordering::Relaxed) {
@@ -477,8 +560,9 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
                 println!("Lieux : {e:#}");
             }
         }
-        return Ok(());
+        return Ok(fin(complete && !opt.arret.load(Ordering::Relaxed)));
     }
+    suivre(Progres::Lecture { faits: deja, total: deja + travaux.len() });
 
     let avec_ocr = opt.avec_ocr
         && match Ocr::nouveau() {
@@ -498,9 +582,16 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
     println!("Préparation sur {fils} fils");
 
     let suivi_vram = (!opt.cpu).then(SuiviVram::demarrer);
-    let serveur = Serveur::demarrer(racine, opt.cpu, opt.jetons_image, &chemin_base.with_file_name("serveur.log"))?;
-    println!("Modèle chargé sur : {} (en {})\n", serveur.appareil, secondes(serveur.demarrage.as_secs_f64() * 1000.0));
-    let banque = Arc::new(Banque::charger(&serveur.client())?);
+    let journal_serveur = chemin_base.with_file_name("serveur.log");
+    let demarrer_serveur = || Serveur::demarrer(racine, opt.cpu, opt.jetons_image, &journal_serveur);
+    let premier = demarrer_serveur()?;
+    println!("Modèle chargé sur : {} (en {})\n", premier.appareil, secondes(premier.demarrage.as_secs_f64() * 1000.0));
+    let (appareil, demarrage) = (premier.appareil.clone(), premier.demarrage.as_secs_f64());
+    let banque = Arc::new(Banque::charger(&premier.client())?);
+    // Pendant une pause, le serveur est arrêté (la carte graphique est rendue) ; il repart à la reprise.
+    let mut serveur = Some(premier);
+    let mut numero_serveur = 0;
+    let mut ram_serveur = 0;
 
     let debut = Instant::now();
     let travaux = Arc::new(travaux);
@@ -509,12 +600,16 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
     let (envoi, reception) = mpsc::sync_channel::<Evenement>(fils * 2 + LOTS_EN_VOL);
     let mut poignees = Vec::new();
     for _ in 0..fils {
-        let (travaux, suivant, envoi, pdfium, arret) =
-            (travaux.clone(), suivant.clone(), envoi.clone(), pdfium.clone(), opt.arret.clone());
+        let (travaux, suivant, envoi, pdfium, arret, suspendre) =
+            (travaux.clone(), suivant.clone(), envoi.clone(), pdfium.clone(), opt.arret.clone(), opt.suspendre.clone());
         poignees.push(std::thread::spawn(move || {
             crate::processus::fil_en_priorite_basse();
             match Lecteurs::nouveaux(pdfium, avec_ocr) {
                 Ok(lecteurs) => loop {
+                    // En pause : le fichier en cours est fini, puis on attend.
+                    while suspendre.load(Ordering::Relaxed) && !arret.load(Ordering::Relaxed) {
+                        std::thread::sleep(ATTENTE_PAUSE);
+                    }
                     if arret.load(Ordering::Relaxed) {
                         break;
                     }
@@ -533,19 +628,21 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
         }));
     }
     // Fils d'envoi : chacun prend un lot, attend les vecteurs du serveur et les renvoie au fil principal.
-    let (envoi_lots, reception_lots) = mpsc::sync_channel::<(Lot, Vec<serde_json::Value>)>(LOTS_EN_VOL);
+    // Le client vient avec chaque lot : après une pause, le serveur relancé a une autre adresse.
+    let (envoi_lots, reception_lots) = mpsc::sync_channel::<(Lot, Vec<serde_json::Value>, Client)>(LOTS_EN_VOL);
     let reception_lots = Arc::new(Mutex::new(reception_lots));
     for _ in 0..LOTS_EN_VOL {
-        let (client, reception_lots, envoi): (Client, _, SyncSender<Evenement>) =
-            (serveur.client(), reception_lots.clone(), envoi.clone());
+        let (reception_lots, envoi): (_, SyncSender<Evenement>) = (reception_lots.clone(), envoi.clone());
         poignees.push(std::thread::spawn(move || {
             loop {
                 let suivant = reception_lots.lock().unwrap().recv();
-                let Ok((lot, entrees)) = suivant else { break };
+                let Ok((lot, entrees, client)) = suivant else { break };
                 let debut = Instant::now();
+                let copie = entrees.clone();
                 let resultat = client.vecteurs(entrees);
                 let ms = debut.elapsed().as_secs_f64() * 1000.0;
-                if envoi.send(Evenement::Vecteurs { lot, ms, resultat }).is_err() {
+                let entrees = if resultat.is_err() { copie } else { Vec::new() };
+                if envoi.send(Evenement::Vecteurs { lot, ms, resultat, entrees }).is_err() {
                     break;
                 }
             }
@@ -557,12 +654,13 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
     let mut chaine = Chaine {
         base,
         travaux: travaux.clone(),
-        appareil: serveur.appareil.clone(),
+        appareil: appareil.clone(),
         en_cours: HashMap::new(),
         attente: VecDeque::new(),
         poids_attente: 0,
         cumuls: BTreeMap::new(),
         termines: 0,
+        deja,
         prepares: 0,
         en_vol: 0,
         banque: banque.clone(),
@@ -570,42 +668,74 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
     };
     let mut fils_finis = 0;
     loop {
+        let suspendu = opt.suspendre.load(Ordering::Relaxed);
+        // Arrêt demandé pendant une pause : ce qui attend le modèle est laissé, ce sera refait la prochaine fois.
+        if opt.arret.load(Ordering::Relaxed) && (suspendu || serveur.is_none()) {
+            break;
+        }
         // Plus rien ne viendra des fils de préparation : tout préparé, ou arrêt demandé.
         let preparation_finie = chaine.prepares == total || fils_finis == fils;
         if preparation_finie && chaine.termines == chaine.prepares && chaine.attente.is_empty() && chaine.en_vol == 0 {
             break;
         }
-        // Remplir le serveur : des lots pleins, ou ce qui attend s'il n'a rien à faire,
-        // ou tout le reste quand plus rien n'arrive des fils de préparation.
-        while chaine.en_vol < LOTS_EN_VOL
-            && !chaine.attente.is_empty()
-            && (chaine.attente.len() >= LOT_MORCEAUX
-                || chaine.poids_attente >= LOT_JETONS
-                || chaine.en_vol == 0
-                || preparation_finie)
-        {
-            let (lot, entrees) = chaine.former_lot();
-            chaine.en_vol += 1;
-            envoi_lots.send((lot, entrees))?;
+        if suspendu {
+            // Le modèle est arrêté tout de suite : la carte graphique est libre pendant la pause. Les lots qu'il
+            // calculait échouent et seront renvoyés à la reprise.
+            if let Some(s) = serveur.take() {
+                ram_serveur = ram_serveur.max(s.memoire_max());
+                drop(s);
+                numero_serveur += 1;
+                println!("Pause : modèle arrêté");
+            }
+        } else {
+            if serveur.is_none() && !chaine.attente.is_empty() {
+                let s = demarrer_serveur()?;
+                println!("Reprise : modèle rechargé en {}", secondes(s.demarrage.as_secs_f64() * 1000.0));
+                serveur = Some(s);
+            }
+            // Remplir le serveur : des lots pleins, ou ce qui attend s'il n'a rien à faire,
+            // ou tout le reste quand plus rien n'arrive des fils de préparation.
+            if let Some(s) = &serveur {
+                while chaine.en_vol < LOTS_EN_VOL
+                    && !chaine.attente.is_empty()
+                    && (chaine.attente.len() >= LOT_MORCEAUX
+                        || chaine.poids_attente >= LOT_JETONS
+                        || chaine.en_vol == 0
+                        || preparation_finie)
+                {
+                    let (mut lot, entrees) = chaine.former_lot();
+                    lot.serveur = numero_serveur;
+                    chaine.en_vol += 1;
+                    envoi_lots.send((lot, entrees, s.client()))?;
+                }
+            }
         }
-        match reception.recv() {
+        // Sans attendre indéfiniment : une pause qui commence ou finit doit être vue même si rien n'arrive.
+        match reception.recv_timeout(ATTENTE_PAUSE) {
             Ok(Evenement::Pret(p)) => chaine.ajouter(p)?,
             Ok(Evenement::FilFini) => fils_finis += 1,
-            Ok(Evenement::Vecteurs { lot, ms, resultat }) => {
+            Ok(Evenement::Vecteurs { lot, ms, resultat, entrees }) => {
                 chaine.en_vol -= 1;
-                chaine.recevoir(lot, ms, resultat)?;
+                if resultat.is_err() && lot.serveur != numero_serveur {
+                    chaine.remettre(lot, entrees);
+                } else {
+                    chaine.recevoir(lot, ms, resultat)?;
+                }
             }
-            Err(_) => break,
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
         }
     }
     drop(envoi_lots);
+    // Un fil de préparation bloqué sur l'envoi (arrêt pendant une pause) se libère quand la réception disparaît.
+    drop(reception);
     for p in poignees {
         let _ = p.join();
     }
 
     let duree = debut.elapsed().as_secs_f64();
+    let lecture_complete = chaine.termines == total;
     let Chaine { mut base, cumuls, termines, .. } = chaine;
-    let appareil = serveur.appareil.clone();
 
     println!("\n== Passe 1 : tout est cherchable ({appareil}, {fils} fils de préparation) ==");
     println!(
@@ -624,11 +754,15 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
     println!("Durée : {} pour {termines} fichier(s), soit {debit:.0} fichiers par minute", secondes(duree * 1000.0));
     println!("(la lecture se fait en parallèle sur {fils} fils : la durée est plus courte que la somme)");
 
+    let mut visages_complets = true;
     if opt.avec_visages && !opt.arret.load(Ordering::Relaxed) && visages::modeles_presents(racine) {
         let debut = Instant::now();
         match passe_visages(&mut base, racine, &opt) {
-            Ok(0) => {}
-            Ok(n) => println!("Durée : {} pour {n} photo(s)", secondes(debut.elapsed().as_secs_f64() * 1000.0)),
+            Ok((0, toutes)) => visages_complets = toutes,
+            Ok((n, toutes)) => {
+                visages_complets = toutes;
+                println!("Durée : {} pour {n} photo(s)", secondes(debut.elapsed().as_secs_f64() * 1000.0));
+            }
             Err(e) => println!("Visages : {e:#}"),
         }
     }
@@ -643,10 +777,19 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
     }
 
     let mut duree_transcription = 0.0;
-    if opt.avec_transcription && !opt.arret.load(Ordering::Relaxed) {
+    let mut transcription_complete = true;
+    if opt.avec_transcription && !opt.arret.load(Ordering::Relaxed) && opt.suspendre.load(Ordering::Relaxed) {
+        // En pause : elle se fera à la reprise.
+        transcription_complete = false;
+    } else if opt.avec_transcription && !opt.arret.load(Ordering::Relaxed) {
+        if serveur.is_none() {
+            serveur = Some(demarrer_serveur()?);
+        }
+        let client = serveur.as_ref().map(Serveur::client).expect("serveur démarré");
         let journal = chemin_base.with_file_name("transcription.log");
-        match paroles::transcrire(&mut base, &serveur.client(), &banque, racine, &journal, &opt.arret, opt.suivi.as_ref()) {
+        match paroles::transcrire(&mut base, &client, &banque, racine, &journal, &opt.arret, &opt.suspendre, opt.suivi.as_ref()) {
             Ok(Some(b)) => {
+                transcription_complete = !b.interrompue;
                 duree_transcription = b.duree;
                 let vitesse = if b.duree > 0.0 { b.secondes_audio / b.duree } else { 0.0 };
                 println!(
@@ -660,8 +803,7 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
     }
 
     let ram_programme = mesures::pic_memoire_programme();
-    let ram_serveur = serveur.memoire_max();
-    let demarrage = serveur.demarrage.as_secs_f64();
+    let ram_serveur = ram_serveur.max(serveur.as_ref().map_or(0, Serveur::memoire_max));
     drop(serveur);
     let vram = suivi_vram.and_then(|s| s.arreter());
     base.execute(
@@ -679,14 +821,17 @@ pub fn indexer(racine: &Path, chemin_base: &Path, dossiers: &[PathBuf], opt: Opt
         println!("Mémoire de la carte graphique : +{} pendant l'indexation", mo(v));
     }
     println!("Place de l'index : {}", mo(mesures::taille_base(chemin_base)));
-    Ok(())
+    let complete = lecture_complete && visages_complets && transcription_complete && !opt.arret.load(Ordering::Relaxed);
+    Ok(fin(complete))
 }
 
 /// Reconnaît les visages des photos pas encore analysées, sur plusieurs fils (processeur, priorité basse).
-fn passe_visages(base: &mut Connection, racine: &Path, opt: &Options) -> Result<usize> {
-    let photos = visages::photos_a_analyser(base)?;
+/// Rend le nombre de photos analysées, et si toutes l'ont été (arrêt ou pause : le reste la prochaine fois).
+fn passe_visages(base: &mut Connection, racine: &Path, opt: &Options) -> Result<(usize, bool)> {
+    let mut photos = visages::photos_a_analyser(base)?;
+    photos.retain(|(_, chemin)| !fichiers::en_ligne(Path::new(chemin)));
     if photos.is_empty() {
-        return Ok(0);
+        return Ok((0, true));
     }
     let reconnaissance = visages::contexte(racine)?;
     let total = photos.len();
@@ -696,13 +841,13 @@ fn passe_visages(base: &mut Connection, racine: &Path, opt: &Options) -> Result<
     let suivant = Arc::new(AtomicUsize::new(0));
     let (envoi, reception) = mpsc::channel::<(usize, Result<Vec<visages::Visage>>)>();
     for _ in 0..fils {
-        let (photos, suivant, envoi, reconnaissance, arret) =
-            (photos.clone(), suivant.clone(), envoi.clone(), reconnaissance.clone(), opt.arret.clone());
+        let (photos, suivant, envoi, reconnaissance, arret, suspendre) =
+            (photos.clone(), suivant.clone(), envoi.clone(), reconnaissance.clone(), opt.arret.clone(), opt.suspendre.clone());
         std::thread::spawn(move || {
             crate::processus::fil_en_priorite_basse();
             let Ok(images) = Images::nouveau() else { return };
             loop {
-                if arret.load(Ordering::Relaxed) {
+                if arret.load(Ordering::Relaxed) || suspendre.load(Ordering::Relaxed) {
                     break;
                 }
                 let i = suivant.fetch_add(1, Ordering::Relaxed);
@@ -728,7 +873,7 @@ fn passe_visages(base: &mut Connection, racine: &Path, opt: &Options) -> Result<
             s(Progres::Visages { faits, total });
         }
     }
-    Ok(faits)
+    Ok((faits, faits == total))
 }
 
 /// L'état du fil principal : fichiers préparés en attente de vecteurs, et morceaux à envoyer.
@@ -743,6 +888,8 @@ struct Chaine {
     poids_attente: usize,
     cumuls: BTreeMap<Genre, Cumul>,
     termines: usize,
+    /// Fichiers déjà lus les fois précédentes (pour l'avancement).
+    deja: usize,
     /// Fichiers reçus des fils de préparation.
     prepares: usize,
     /// Lots envoyés au serveur dont on attend les vecteurs.
@@ -794,7 +941,19 @@ impl Chaine {
             .iter()
             .map(|&(f, m)| std::mem::take(&mut self.en_cours.get_mut(&f).unwrap().prep.morceaux[m].entree))
             .collect();
-        (Lot { morceaux, poids }, entrees)
+        (Lot { morceaux, poids, serveur: 0 }, entrees)
+    }
+
+    /// Remet en tête de l'attente un lot que le modèle n'a pas pu calculer (arrêté par une pause).
+    fn remettre(&mut self, lot: Lot, entrees: Vec<serde_json::Value>) {
+        for (&(f, m), entree) in lot.morceaux.iter().zip(entrees).rev() {
+            // Un fichier déjà en erreur (lot précédent) n'est plus suivi.
+            let Some(e) = self.en_cours.get_mut(&f) else { continue };
+            let morceau = &mut e.prep.morceaux[m];
+            morceau.entree = entree;
+            self.poids_attente += morceau.poids;
+            self.attente.push_front((f, m));
+        }
     }
 
     /// Range les vecteurs d'un lot ; enregistre les fichiers complets.
@@ -920,7 +1079,7 @@ impl Chaine {
 
     fn signaler(&self) {
         if let Some(s) = &self.suivi {
-            s(Progres::Lecture { faits: self.termines, total: self.travaux.len() });
+            s(Progres::Lecture { faits: self.deja + self.termines, total: self.deja + self.travaux.len() });
         }
     }
 

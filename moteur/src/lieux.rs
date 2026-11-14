@@ -258,7 +258,9 @@ pub fn passe(base: &mut Connection, racine: &Path, arret: &AtomicBool) -> Result
     let photos: Vec<(i64, String)> = {
         let mut req =
             base.prepare("SELECT id, chemin FROM fichiers WHERE genre = 'photo' AND erreur IS NULL AND exif_fait = 0")?;
-        req.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+        let photos: Vec<(i64, String)> = req.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        // Seulement en ligne (OneDrive, téléphone relié) : lue le jour où elle est sur le disque.
+        photos.into_iter().filter(|(_, chemin)| !crate::fichiers::en_ligne(Path::new(chemin))).collect()
     };
     // Lire les métadonnées ne lit que le début du fichier : quelques fils suffisent.
     let fils = std::thread::available_parallelism().map_or(2, |n| n.get() / 2).clamp(1, 4);

@@ -718,7 +718,18 @@ pub fn a_transcrire(base: &Connection) -> Result<Vec<ATranscrire>> {
         }
         sortie.last_mut().unwrap().tranches.push((debut, fin.unwrap_or(debut), depuis_octets(&v)));
     }
+    // Seulement en ligne (OneDrive, téléphone relié) : transcrit le jour où il est sur le disque.
+    sortie.retain(|a| !crate::fichiers::en_ligne(std::path::Path::new(&a.chemin)));
     Ok(sortie)
+}
+
+/// Les audios et les vidéos déjà transcrits (pour l'avancement : il ne repart pas de zéro à chaque reprise).
+pub fn nb_transcrits(base: &Connection) -> Result<usize> {
+    Ok(base.query_row(
+        "SELECT count(*) FROM fichiers WHERE genre IN ('audio', 'video') AND erreur IS NULL AND transcrit = 1",
+        [],
+        |r| r.get::<_, i64>(0),
+    )? as usize)
 }
 
 /// Ajoute les passages transcrits (début, fin, vecteur) et marque le fichier comme transcrit.

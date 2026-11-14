@@ -489,6 +489,7 @@ mod tests {
 
     #[test]
     fn lisible() {
+        crate::langue::definir(crate::langue::Langue::Francais);
         assert_eq!(taille_lisible(2_400_000), "2,3 Mo");
         assert_eq!(taille_lisible(812 * 1024), "812 Ko");
         assert_eq!(taille_lisible(4), "4 octets");

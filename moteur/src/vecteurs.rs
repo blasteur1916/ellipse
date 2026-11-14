@@ -95,7 +95,9 @@ impl IndexRapide {
     pub fn charger(fichier: &Path) -> Result<Self> {
         let seq: i64 = std::fs::read_to_string(fichier.with_extension("seq"))?.trim().parse()?;
         let index = usearch(Index::new(&options()))?;
-        usearch(index.load(&fichier.to_string_lossy()))?;
+        // Lu par Rust puis donné à usearch : ses fichiers à lui sont héritables, et un llama-server lancé au même
+        // moment gardait l'index ouvert toute sa vie (plus aucune sauvegarde possible).
+        usearch(index.load_from_buffer(&std::fs::read(fichier)?))?;
         Ok(IndexRapide { index, seq })
     }
 
@@ -179,8 +181,20 @@ impl IndexRapide {
     /// partie du journal qu'il contient.
     pub fn sauver(&self, base: &Connection, fichier: &Path) -> Result<()> {
         let provisoire = fichier.with_extension("usearch.tmp");
-        usearch(self.index.save(&provisoire.to_string_lossy()))?;
-        std::fs::rename(&provisoire, fichier).context("sauvegarde de l'index rapide")?;
+        // Écrit par Rust, pour la même raison qu'au chargement.
+        let mut octets = vec![0u8; self.index.serialized_length()];
+        usearch(self.index.save_to_buffer(&mut octets))?;
+        std::fs::write(&provisoire, &octets)?;
+        drop(octets);
+        // Un antivirus ou l'indexeur de Windows lit parfois l'ancien fichier un instant : on réessaie.
+        let mut essais = 0;
+        while let Err(e) = std::fs::rename(&provisoire, fichier) {
+            essais += 1;
+            if essais >= 10 {
+                return Err(e).context("sauvegarde de l'index rapide");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300 * essais));
+        }
         std::fs::write(fichier.with_extension("seq"), self.seq.to_string())?;
         base.execute("DELETE FROM journal_vecteurs WHERE seq <= ?1", [self.seq])?;
         Ok(())

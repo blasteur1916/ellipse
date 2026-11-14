@@ -11,8 +11,11 @@ const SEUIL_PLAN: f32 = 0.12;
 const SEUIL_IDENTIQUE: f32 = 0.004;
 /// Un plan plus long est coupé, pour pouvoir ouvrir la vidéo au bon moment.
 const PLAN_MAX_SECONDES: usize = 30;
-/// Images envoyées au modèle pour un plan.
-const IMAGES_PAR_PLAN: usize = 8;
+/// Images envoyées au modèle pour un plan. 8 coûtaient trop cher : une vidéo de 5 Mo prenait plus de 10 min
+/// de carte graphique (14 novembre 2026, sur le disque de l'utilisateur) ; 3 suffisent pour la retrouver.
+const IMAGES_PAR_PLAN: usize = 3;
+/// Au-delà, les plans voisins sont regroupés : un film reste retrouvable, au plan près d'une à deux minutes.
+const PLANS_MAX: usize = 40;
 /// On ne décode que les images clés si elles sont espacées de 2 s au plus (vidéos de téléphone, de caméra…).
 const ECART_IMAGES_CLES_MAX: f64 = 2.0;
 /// Une vidéo courte se décode vite : on la décode entièrement.
@@ -30,12 +33,33 @@ pub fn plans(chemin: &Path) -> Result<Vec<Plan>> {
         if duree >= DUREE_MIN_IMAGES_CLES && images_cles > 0 && duree / images_cles as f64 <= ECART_IMAGES_CLES_MAX {
             if let Ok(plans) = decouper(chemin, true) {
                 if !plans.is_empty() {
-                    return Ok(plans);
+                    return Ok(regrouper(plans));
                 }
             }
         }
     }
-    decouper(chemin, false)
+    decouper(chemin, false).map(regrouper)
+}
+
+/// Au plus `PLANS_MAX` plans : les plans voisins sont fusionnés par groupes égaux.
+fn regrouper(plans: Vec<Plan>) -> Vec<Plan> {
+    let n = plans.len();
+    if n <= PLANS_MAX {
+        return plans;
+    }
+    let taille = n.div_ceil(PLANS_MAX);
+    let mut sortie = Vec::with_capacity(PLANS_MAX);
+    let mut plans = plans.into_iter();
+    while let Some(premier) = plans.next() {
+        let (debut, mut fin, mut images) = (premier.debut, premier.fin, premier.images);
+        for _ in 1..taille {
+            let Some(p) = plans.next() else { break };
+            fin = p.fin;
+            images.extend(p.images);
+        }
+        sortie.push(Plan { debut, fin, images: choisir(images) });
+    }
+    sortie
 }
 
 /// Durée (s) et nombre d'images clés, lus dans le conteneur sans rien décoder.
@@ -110,14 +134,17 @@ fn decouper(chemin: &Path, images_cles: bool) -> Result<Vec<Plan>> {
 }
 
 fn fermer(debut: usize, fin: usize, images: Vec<Vec<u8>>) -> Plan {
+    Plan { debut: debut as f64, fin: fin as f64, images: choisir(images) }
+}
+
+/// Au plus `IMAGES_PAR_PLAN` images, réparties sur tout le plan.
+fn choisir(images: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
     let n = images.len();
-    let images = if n <= IMAGES_PAR_PLAN {
-        images
-    } else {
-        let gardees: Vec<usize> = (0..IMAGES_PAR_PLAN).map(|i| i * n / IMAGES_PAR_PLAN).collect();
-        images.into_iter().enumerate().filter(|(i, _)| gardees.contains(i)).map(|(_, j)| j).collect()
-    };
-    Plan { debut: debut as f64, fin: fin as f64, images }
+    if n <= IMAGES_PAR_PLAN {
+        return images;
+    }
+    let gardees: Vec<usize> = (0..IMAGES_PAR_PLAN).map(|i| i * n / IMAGES_PAR_PLAN).collect();
+    images.into_iter().enumerate().filter(|(i, _)| gardees.contains(i)).map(|(_, j)| j).collect()
 }
 
 /// Miniature 32×18 en niveaux de gris, pour comparer deux images rapidement.
@@ -129,4 +156,21 @@ fn signature(jpeg: &[u8]) -> Result<Vec<u8>> {
 fn difference(a: &[u8], b: &[u8]) -> f32 {
     let somme: u32 = a.iter().zip(b).map(|(x, y)| x.abs_diff(*y) as u32).sum();
     somme as f32 / (a.len().max(1) as f32 * 255.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn un_film_garde_au_plus_40_plans_sur_toute_sa_duree() {
+        let plans: Vec<Plan> =
+            (0..250).map(|i| Plan { debut: i as f64 * 30.0, fin: (i + 1) as f64 * 30.0, images: vec![vec![i as u8]; 5] }).collect();
+        let r = regrouper(plans);
+        assert!(r.len() <= PLANS_MAX);
+        assert_eq!(r[0].debut, 0.0);
+        assert_eq!(r.last().unwrap().fin, 7500.0);
+        assert!(r.iter().all(|p| p.images.len() <= IMAGES_PAR_PLAN));
+        assert!(r.windows(2).all(|w| w[0].fin == w[1].debut));
+    }
 }

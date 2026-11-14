@@ -17,7 +17,8 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows::Win32::UI::Shell::{
-    IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY, SIIGBF_RESIZETOFIT,
+    IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY, SIIGBF_INCACHEONLY,
+    SIIGBF_RESIZETOFIT,
 };
 use windows::core::HSTRING;
 
@@ -114,9 +115,15 @@ fn miniature(chemin: &Path, cote: i32) -> Option<Vec<u8>> {
         let nom = chemin.to_string_lossy().replace('/', "\\");
         let fabrique: IShellItemImageFactory = SHCreateItemFromParsingName(&HSTRING::from(nom), None).ok()?;
         let taille = SIZE { cx: cote, cy: cote };
+        // Un fichier seulement en ligne (OneDrive, téléphone relié) : la miniature déjà connue de Windows, sans
+        // quoi le calculer téléchargerait le fichier.
+        let mut options = SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK;
+        if furet_moteur::fichiers::en_ligne(chemin) {
+            options |= SIIGBF_INCACHEONLY;
+        }
         // Certains générateurs d'aperçus échouent au lieu de se rabattre sur l'icône : on la demande alors.
         let image = fabrique
-            .GetImage(taille, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK)
+            .GetImage(taille, options)
             .or_else(|_| fabrique.GetImage(taille, SIIGBF_ICONONLY))
             .ok()?;
         let pixels = lire(image);

@@ -144,6 +144,28 @@ pub struct Preparation {
 
 /// pdfium.dll, chargée une seule fois par programme (pdfium-render refuse un deuxième chargement : les
 /// sessions d'indexation suivantes échouaient) et partagée entre les fils (pdfium-render la protège par un verrou).
+/// Les attributs Windows d'un fichier « disponible en ligne seulement » (OneDrive, téléphone relié par Lien
+/// avec Windows…) : le lire le ferait télécharger, avec une notification à chaque fichier. On ne garde que
+/// son nom. (FILE_ATTRIBUTE_OFFLINE, RECALL_ON_OPEN, RECALL_ON_DATA_ACCESS.)
+pub fn attributs_en_ligne(attributs: u32) -> bool {
+    attributs & (0x1000 | 0x4_0000 | 0x40_0000) != 0
+}
+
+/// Le fichier n'est pas sur le disque, seulement en ligne (voir `attributs_en_ligne`). Ses attributs sont lus
+/// sans l'ouvrir pour de bon : rien n'est téléchargé.
+pub fn en_ligne(chemin: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        std::fs::symlink_metadata(chemin).is_ok_and(|m| attributs_en_ligne(m.file_attributes()))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = chemin;
+        false
+    }
+}
+
 pub fn charger_pdfium(racine: &Path) -> Result<Arc<Pdfium>> {
     static PDFIUM: std::sync::OnceLock<Arc<Pdfium>> = std::sync::OnceLock::new();
     if let Some(p) = PDFIUM.get() {
