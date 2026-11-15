@@ -90,6 +90,7 @@ pub fn run() {
             ile::ile_region,
             ile::ile_memoire,
             raccourci::fermer_barre,
+            raccourci::ile_prete,
             recherche::chercher_noms,
             recherche::chercher_contenu,
             recherche::ouvrir_fichier,

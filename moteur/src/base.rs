@@ -111,7 +111,13 @@ pub fn ouvrir(chemin: &Path) -> Result<Connection> {
             |r| r.get(0),
         )?;
         if !existe {
-            base.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {colonne} {genre};"))?;
+            // Deux ouvertures en même temps sur un index neuf (premier lancement) : l'autre a pu l'ajouter
+            // entre-temps.
+            if let Err(e) = base.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {colonne} {genre};"))
+                && !e.to_string().contains("duplicate column name")
+            {
+                return Err(e.into());
+            }
         }
     }
     base.execute_batch("CREATE INDEX IF NOT EXISTS fichiers_lieu ON fichiers(lieu_id);")?;
@@ -536,6 +542,25 @@ mod tests {
         let _ = std::fs::remove_file(&chemin);
         drop(super::ouvrir(&chemin).expect("index neuf"));
         drop(super::ouvrir(&chemin).expect("index rouvert"));
+        for suffixe in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffixe}", chemin.display()));
+        }
+    }
+
+    /// Au premier lancement, plusieurs parties de l'appli ouvrent l'index neuf en même temps.
+    #[test]
+    fn index_neuf_ouvert_a_plusieurs() {
+        let chemin = std::env::temp_dir().join(format!("ellipse-neuf-ensemble-{}.sqlite", std::process::id()));
+        let _ = std::fs::remove_file(&chemin);
+        let fils: Vec<_> = (0..6)
+            .map(|_| {
+                let c = chemin.clone();
+                std::thread::spawn(move || super::ouvrir(&c).map(drop).map_err(|e| format!("{e:#}")))
+            })
+            .collect();
+        for f in fils {
+            f.join().unwrap().expect("ouverture en même temps");
+        }
         for suffixe in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffixe}", chemin.display()));
         }

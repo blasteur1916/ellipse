@@ -10,7 +10,7 @@ export interface Reglages {
   bibliotheques: boolean;
   pause_batterie: boolean;
   pause_jeu: boolean;
-  /** Lancer Ellipse avec Windows. */
+  /** Lancer Ellipse au démarrage de l'ordinateur. */
   demarrage: boolean;
   /** « auto » (la langue de Windows), « en » ou « fr ». */
   langue: string;

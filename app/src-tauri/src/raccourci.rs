@@ -39,6 +39,9 @@ const RACCOURCIS: [(&str, u32); 3] = [
 ];
 
 static OUVERT: AtomicBool = AtomicBool::new(false);
+/// La dernière ouverture envoyée, tant que l'île est ouverte : l'interface la redemande si elle n'écoutait
+/// pas encore (premier lancement).
+static DERNIERE: std::sync::Mutex<Option<Ouverture>> = std::sync::Mutex::new(None);
 /// Le raccourci obtenu (« Alt+Espace »…).
 static TENU: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
@@ -200,7 +203,9 @@ fn ouvrir_avec(app: &AppHandle, texte: Option<String>, reglages: bool, apercu: O
         let _ = fenetre.set_focus();
     }
     let accueil = !crate::installation::essentiel_pret();
-    let _ = app.emit(EVT_OUVRIR, Ouverture { texte, test, reglages, apercu, accueil });
+    let ouverture = Ouverture { texte, test, reglages, apercu, accueil };
+    *DERNIERE.lock().unwrap_or_else(|e| e.into_inner()) = Some(ouverture.clone());
+    let _ = app.emit(EVT_OUVRIR, ouverture);
     recherche::rafraichir_si_change();
     if test || cfg!(not(windows)) {
         return;
@@ -231,6 +236,7 @@ pub fn fermer(app: &AppHandle, rendre: bool) {
     if !OUVERT.swap(false, Ordering::Relaxed) {
         return;
     }
+    *DERNIERE.lock().unwrap_or_else(|e| e.into_inner()) = None;
     // Ailleurs que sous Windows, cacher l'île rend le clavier à la fenêtre d'avant.
     #[cfg(not(windows))]
     let _ = rendre;
@@ -247,6 +253,17 @@ pub fn fermer(app: &AppHandle, rendre: bool) {
         }
     }
     let _ = app.emit(EVT_FERMER, ());
+}
+
+/// L'interface écoute maintenant : l'île déjà ouverte lui est renvoyée.
+#[tauri::command]
+pub fn ile_prete(app: AppHandle) {
+    let derniere = DERNIERE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if OUVERT.load(Ordering::Relaxed)
+        && let Some(o) = derniere
+    {
+        let _ = app.emit(EVT_OUVRIR, o);
+    }
 }
 
 #[tauri::command]

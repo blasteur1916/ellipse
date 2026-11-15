@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Barre, HAUTEUR_CHAMP } from "../barre/Barre";
-import { fermerBarre, onBarre, setMemoireBasse, type Ouverture } from "../ipc/ile";
+import { fermerBarre, ilePrete, onBarre, setMemoireBasse, type Ouverture } from "../ipc/ile";
 import { useIndexation } from "../ipc/indexation";
 import { dialogueOuvert } from "../ipc/reglages";
 import { Reglages } from "../reglages/Reglages";
@@ -49,7 +49,11 @@ export function Ile() {
       },
       () => setOuvert(false),
     )
-      .then((stop) => (vivant ? (arreter = stop) : stop()))
+      .then((stop) => {
+        if (!vivant) return stop();
+        arreter = stop;
+        ilePrete().catch(() => {});
+      })
       .catch(() => {});
     return () => {
       vivant = false;

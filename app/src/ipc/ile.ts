@@ -41,5 +41,11 @@ export function onBarre(ouvrir: (o: Ouverture) => void, fermer: () => void): Pro
   ]).then((stops) => () => stops.forEach((stop) => stop()));
 }
 
+/**
+ * L'interface écoute : si l'île devait déjà être ouverte (premier lancement, l'accueil demandé avant que
+ * la page soit prête), l'ordre est renvoyé.
+ */
+export const ilePrete = () => invoke<void>("ile_prete");
+
 /** `rendre` : redonne le clavier à la fenêtre d'avant. */
 export const fermerBarre = (rendre: boolean) => invoke<void>("fermer_barre", { rendre });

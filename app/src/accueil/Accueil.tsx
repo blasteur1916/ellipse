@@ -110,7 +110,7 @@ export function Accueil({ onFini, onHauteur }: { onFini(): void; onHauteur(h: nu
               )}
             </Interrupteur>
             <Interrupteur actif={reglages.demarrage} onChange={(demarrage) => changer({ ...reglages, demarrage })}>
-              {tr("Lancer Ellipse avec Windows", "Start Ellipse with Windows")}
+              {tr("Lancer Ellipse au démarrage de l'ordinateur", "Start Ellipse when the computer starts")}
             </Interrupteur>
           </div>
         </>
