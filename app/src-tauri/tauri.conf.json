@@ -62,11 +62,6 @@
         "displayLanguageSelector": false
       }
     },
-    "linux": {
-      "deb": {
-        "depends": ["ffmpeg"]
-      }
-    },
     "createUpdaterArtifacts": true,
     "licenseFile": "../../LICENSE",
     "copyright": "Ellipse — GPL-3.0"

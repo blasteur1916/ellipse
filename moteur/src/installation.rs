@@ -1,7 +1,7 @@
 //! Ce qu'Ellipse télécharge au premier lancement : le moteur (llama.cpp), les modèles, pdfium, ffmpeg et la
 //! liste des villes. Chaque fichier est vérifié (SHA-256) ; un téléchargement coupé reprend où il en était.
-//! On ne garde des archives que ce qui sert. Une liste par système : Windows, Linux (x64 ; FFmpeg est celui
-//! du système), macOS (Apple Silicon ; FFmpeg aussi pris dans le système pour l'instant).
+//! On ne garde des archives que ce qui sert. Une liste par système : Windows, Linux (x64), macOS (Apple
+//! Silicon). FFmpeg 9.0.2 partout (hors de Windows, les versions figées de ffmpeg.martin-riedl.de).
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -28,8 +28,6 @@ enum Forme {
     /// Un fichier tel quel, à ce chemin (relatif à la racine).
     Fichier(&'static str),
     /// Une archive : `garder` dit où ranger chaque fichier qui sert (chemin relatif à la racine), ou rien.
-    // Les archives zip ne servent que sous Windows (ailleurs, des tar).
-    #[cfg_attr(not(windows), allow(dead_code))]
     Zip(fn(&str) -> Option<String>),
     TarGz(fn(&str) -> Option<String>),
     TarBz2(fn(&str) -> Option<String>),
@@ -226,7 +224,7 @@ const SFACE: Paquet = Paquet {
 };
 
 #[cfg(target_os = "linux")]
-pub const PAQUETS: [Paquet; 10] = [
+pub const PAQUETS: [Paquet; 12] = [
     Paquet {
         nom_fr: "Moteur de recherche (processeur)",
         nom_en: "Search engine (CPU)",
@@ -263,6 +261,26 @@ pub const PAQUETS: [Paquet; 10] = [
         }),
         present: "outils/pdfium/bin/libpdfium.so",
     },
+    Paquet {
+        nom_fr: "Lecteur de sons et de vidéos (FFmpeg)",
+        nom_en: "Audio and video reader (FFmpeg)",
+        groupe: Groupe::Essentiel,
+        url: "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffmpeg.zip",
+        taille: 33_326_445,
+        sha256: Some("fa8ecf4abbd290d98f7d188b8649cc6b391ae209a98452be955a15aab1909d7f"),
+        forme: Forme::Zip(|n| (n == "ffmpeg").then(|| "outils/ffmpeg/ffmpeg".into())),
+        present: "outils/ffmpeg/ffmpeg",
+    },
+    Paquet {
+        nom_fr: "Lecteur de sons et de vidéos (FFprobe)",
+        nom_en: "Audio and video reader (FFprobe)",
+        groupe: Groupe::Essentiel,
+        url: "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffprobe.zip",
+        taille: 33_223_234,
+        sha256: Some("3f428c49070be3d24ec338602b76d412e401ffcb8a5641ef0e729181a232fc32"),
+        forme: Forme::Zip(|n| (n == "ffprobe").then(|| "outils/ffmpeg/ffprobe".into())),
+        present: "outils/ffmpeg/ffprobe",
+    },
     VILLES,
     Paquet {
         nom_fr: "Transcription (sherpa-onnx)",
@@ -280,7 +298,7 @@ pub const PAQUETS: [Paquet; 10] = [
 ];
 
 #[cfg(target_os = "macos")]
-pub const PAQUETS: [Paquet; 9] = [
+pub const PAQUETS: [Paquet; 11] = [
     Paquet {
         nom_fr: "Moteur de recherche (Metal)",
         nom_en: "Search engine (Metal)",
@@ -306,6 +324,26 @@ pub const PAQUETS: [Paquet; 9] = [
             _ => None,
         }),
         present: "outils/pdfium/bin/libpdfium.dylib",
+    },
+    Paquet {
+        nom_fr: "Lecteur de sons et de vidéos (FFmpeg)",
+        nom_en: "Audio and video reader (FFmpeg)",
+        groupe: Groupe::Essentiel,
+        url: "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip",
+        taille: 28_395_699,
+        sha256: Some("c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924"),
+        forme: Forme::Zip(|n| (n == "ffmpeg").then(|| "outils/ffmpeg/ffmpeg".into())),
+        present: "outils/ffmpeg/ffmpeg",
+    },
+    Paquet {
+        nom_fr: "Lecteur de sons et de vidéos (FFprobe)",
+        nom_en: "Audio and video reader (FFprobe)",
+        groupe: Groupe::Essentiel,
+        url: "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffprobe.zip",
+        taille: 28_317_701,
+        sha256: Some("fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6"),
+        forme: Forme::Zip(|n| (n == "ffprobe").then(|| "outils/ffmpeg/ffprobe".into())),
+        present: "outils/ffmpeg/ffprobe",
     },
     VILLES,
     Paquet {
@@ -488,7 +526,11 @@ fn ranger(racine: &Path, archive: &Path, forme: Forme) -> Result<()> {
                 }
                 let nom = entree.name()?.replace('\\', "/");
                 if let Some(relatif) = garder(&nom) {
+                    let executable = entree.unix_mode().is_some_and(|m| m & 0o111 != 0);
                     ecrire(racine, &relatif, &mut entree)?;
+                    if executable {
+                        rendre_executable(&racine.join(&relatif))?;
+                    }
                     ranges += 1;
                 }
             }

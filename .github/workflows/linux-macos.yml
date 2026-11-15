@@ -1,6 +1,8 @@
-# Construit Ellipse pour Linux et macOS sur les machines de GitHub, le lance (premier lancement : l'accueil
-# s'ouvre) et garde une capture d'écran. Les paquets et les captures sont dans les « artifacts » de chaque
-# exécution.
+# Construit Ellipse pour Linux et macOS sur les machines de GitHub, puis le vérifie de bout en bout :
+# installation des outils et du modèle, indexation de fichiers d'essai (texte, PDF, photo, parole, vidéo),
+# recherches qui doivent trouver le bon fichier (scripts/verifier.sh), et l'appli lancée sur cet index
+# (captures de l'accueil et de la barre avec des résultats). Paquets, captures et journaux sont dans les
+# « artifacts » de chaque exécution.
 name: Linux et macOS
 
 on:
@@ -15,12 +17,16 @@ jobs:
       matrix:
         include:
           # 22.04 : la plus ancienne qui a WebKitGTK 4.1 ; ce qui y est construit marche sur les plus récentes.
+          # Pas de carte graphique : tout tourne sur le processeur.
           - os: ubuntu-22.04
             paquets: deb,appimage
           # Apple Silicon (l'image la plus récente que GitHub propose).
           - os: macos-latest
             paquets: app,dmg
     runs-on: ${{ matrix.os }}
+    env:
+      # Linux : sans bus d'accessibilité (machine sans bureau), GTK l'attendrait 30 s au démarrage.
+      NO_AT_BRIDGE: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -29,7 +35,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
-            libxdo-dev libssl-dev patchelf xvfb imagemagick
+            libxdo-dev libssl-dev patchelf xvfb imagemagick espeak-ng
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -52,37 +58,61 @@ jobs:
           # Sans la clé de signature des mises à jour (elle reste sur le PC du projet).
           pnpm tauri build --bundles ${{ matrix.paquets }} --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
+      - name: Vérifier de bout en bout (installation, indexation, recherches)
+        run: |
+          cargo build --release -p ellipse-proto
+          cargo build --release -p ellipse-moteur --example installer
+          set -o pipefail
+          bash scripts/verifier.sh "$HOME/ellipse-racine" "$HOME/ellipse-essai" 2>&1 | tee verification.log
+
       - name: Lancer et capturer (Linux)
-        if: runner.os == 'Linux'
+        if: always() && runner.os == 'Linux'
         env:
           ELLIPSE_TEST: "1"
-          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
         run: |
           Xvfb :99 -screen 0 1920x1080x24 &
           export DISPLAY=:99
           sleep 2
+          # Premier lancement, sans outils : l'accueil s'ouvre de lui-même.
           ./target/release/ellipse > ellipse.log 2>&1 &
-          sleep 20
-          import -window root capture-linux.png
+          sleep 15
+          import -window root capture-linux-accueil.png
+          pkill -x ellipse || true
+          sleep 2
+          # Sur l'index de la vérification : la barre avec de vrais résultats.
+          export ELLIPSE_RACINE="$HOME/ellipse-racine"
+          ./target/release/ellipse >> ellipse.log 2>&1 &
+          sleep 15
+          ./target/release/ellipse --ouvrir "a dog" || true
+          sleep 10
+          import -window root capture-linux-recherche.png
           ./target/release/ellipse --ouvrir "chrome" || true
           sleep 5
-          import -window root capture-linux-recherche.png
-          cat ellipse.log | tail -40
+          import -window root capture-linux-applications.png
+          tail -40 ellipse.log
 
       - name: Lancer et capturer (macOS)
-        if: runner.os == 'macOS'
+        if: always() && runner.os == 'macOS'
         env:
           ELLIPSE_TEST: "1"
         run: |
           APP=$(ls -d target/release/bundle/macos/*.app | head -1)
           EXE="$APP/Contents/MacOS/$(ls "$APP/Contents/MacOS" | head -1)"
           "$EXE" > ellipse.log 2>&1 &
-          sleep 20
-          screencapture -x capture-macos.png || true
+          sleep 15
+          screencapture -x capture-macos-accueil.png || true
+          pkill -f "$EXE" || true
+          sleep 2
+          export ELLIPSE_RACINE="$HOME/ellipse-racine"
+          "$EXE" >> ellipse.log 2>&1 &
+          sleep 15
+          "$EXE" --ouvrir "a dog" || true
+          sleep 10
+          screencapture -x capture-macos-recherche.png || true
           "$EXE" --ouvrir "safari" || true
           sleep 5
-          screencapture -x capture-macos-recherche.png || true
-          cat ellipse.log | tail -40
+          screencapture -x capture-macos-applications.png || true
+          tail -40 ellipse.log
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -94,4 +124,5 @@ jobs:
             target/release/bundle/dmg/*.dmg
             capture-*.png
             ellipse.log
+            verification.log
           if-no-files-found: warn

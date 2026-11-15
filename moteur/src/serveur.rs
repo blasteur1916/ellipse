@@ -236,13 +236,22 @@ fn port_libre() -> Result<u16> {
     Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
 }
 
-/// Lit `llama-server --list-devices` et garde la carte dédiée avec le plus de mémoire (Vulkan : pas sur Mac).
+/// Lit `llama-server --list-devices` et garde la meilleure carte (Vulkan : pas sur Mac).
 #[cfg(not(target_os = "macos"))]
 fn choisir_carte(racine: &Path) -> Option<(String, String)> {
     let exe = racine.join("outils").join(DOSSIER_GPU).join(LLAMA_SERVER);
     let sortie = crate::processus::commande(exe).arg("--list-devices").output().ok()?;
     let texte = String::from_utf8_lossy(&sortie.stdout).to_string() + &String::from_utf8_lossy(&sortie.stderr);
-    let mut cartes: Vec<(bool, u64, String, String)> = texte
+    meilleure_carte(&texte)
+}
+
+/// Une carte dédiée d'abord (NVIDIA, AMD Radeon RX, Intel Arc), puis celle qui a le plus de mémoire. Une puce
+/// intégrée (Intel, AMD Radeon « Graphics » des processeurs Ryzen) ne passe qu'en l'absence de carte dédiée :
+/// elle annonce souvent beaucoup de mémoire, partagée avec le processeur. Les cartes logicielles (llvmpipe de
+/// Mesa sous Linux…) ne comptent pas : le llama-server du processeur va bien plus vite qu'elles.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn meilleure_carte(liste: &str) -> Option<(String, String)> {
+    let mut cartes: Vec<(bool, u64, String, String)> = liste
         .lines()
         .filter_map(|l| {
             let (id, reste) = l.trim().split_once(": ")?;
@@ -251,10 +260,46 @@ fn choisir_carte(racine: &Path) -> Option<(String, String)> {
             }
             let (nom, mem) = reste.rsplit_once(" (")?;
             let mio = mem.split_whitespace().next()?.parse().ok()?;
-            let integree = nom.contains("Intel") && !nom.contains("Arc");
-            Some((!integree, mio, id.to_string(), nom.to_string()))
+            let n = nom.to_lowercase();
+            if ["llvmpipe", "lavapipe", "swiftshader", "basic render"].iter().any(|l| n.contains(l)) {
+                return None;
+            }
+            let intel_integree = n.contains("intel") && !n.contains("arc");
+            let amd_integree = n.contains("radeon")
+                && !["rx ", "rx", "pro w", "pro v", "firepro", "instinct", "vii"].iter().any(|d| n.contains(&format!(" {d}")));
+            Some((!(intel_integree || amd_integree), mio, id.to_string(), nom.to_string()))
         })
         .collect();
     cartes.sort();
     cartes.pop().map(|(_, _, id, nom)| (id, nom))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::meilleure_carte;
+
+    fn choisie(liste: &str) -> Option<String> {
+        meilleure_carte(liste).map(|(_, nom)| nom)
+    }
+
+    #[test]
+    fn la_carte_dediee_passe_avant_la_puce_integree() {
+        // Processeur Ryzen avec puce Radeon intégrée (beaucoup de mémoire partagée) et carte NVIDIA.
+        let liste = "Available devices:
+  Vulkan0: AMD Radeon 780M Graphics (16384 MiB, 15000 MiB free)
+                       Vulkan1: NVIDIA GeForce RTX 4060 Laptop GPU (8188 MiB, 7300 MiB free)";
+        assert_eq!(choisie(liste).as_deref(), Some("NVIDIA GeForce RTX 4060 Laptop GPU"));
+        // Carte AMD dédiée et puce Intel.
+        let liste = "Vulkan0: Intel(R) UHD Graphics 770 (16000 MiB, 15000 MiB free)
+                     Vulkan1: AMD Radeon RX 7800 XT (16368 MiB, 16000 MiB free)";
+        assert_eq!(choisie(liste).as_deref(), Some("AMD Radeon RX 7800 XT"));
+        // Seulement une puce intégrée AMD : elle sert quand même (plus rapide que le processeur seul).
+        assert_eq!(choisie("Vulkan0: AMD Radeon(TM) Graphics (8192 MiB, 7000 MiB free)").as_deref(), Some("AMD Radeon(TM) Graphics"));
+    }
+
+    #[test]
+    fn une_carte_logicielle_ne_compte_pas() {
+        let liste = "Vulkan0: llvmpipe (LLVM 15.0.7, 256 bits) (32000 MiB, 32000 MiB free)";
+        assert_eq!(choisie(liste), None);
+    }
 }
