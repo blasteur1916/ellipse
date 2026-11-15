@@ -17,8 +17,8 @@ jobs:
           # 22.04 : la plus ancienne qui a WebKitGTK 4.1 ; ce qui y est construit marche sur les plus récentes.
           - os: ubuntu-22.04
             paquets: deb,appimage
-          # Apple Silicon.
-          - os: macos-14
+          # Apple Silicon (l'image la plus récente que GitHub propose).
+          - os: macos-latest
             paquets: app,dmg
     runs-on: ${{ matrix.os }}
     steps:

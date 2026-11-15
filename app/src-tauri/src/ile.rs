@@ -30,6 +30,7 @@ const RECTANGLES_MAX: usize = 16;
 
 /// Un rectangle en pixels CSS de la fenêtre, tel que l'interface l'envoie.
 #[derive(Debug, Clone, Copy, Deserialize)]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub struct Rect {
     pub x: f64,
     pub y: f64,

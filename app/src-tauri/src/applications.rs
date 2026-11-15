@@ -86,6 +86,7 @@ fn annexe(cle: &str) -> bool {
     MOTS.iter().any(|m| cle.contains(m))
 }
 
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 fn nouvelle(nom: String, chemin: String) -> Option<Appli> {
     nouvelle_avec_icone(nom, chemin, None)
 }

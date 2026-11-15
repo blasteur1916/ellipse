@@ -488,8 +488,67 @@ pub fn surveiller(racine: &Path, rappel: impl Fn(Changement)) -> Result<()> {
     }
 }
 
-/// Linux et macOS : par `notify` (inotify, FSEvents).
-#[cfg(unix)]
+/// Linux : inotify ne suit pas les sous-dossiers de lui-même. Chaque dossier qu'on parcourt est suivi à part
+/// (pas les dossiers cachés, les caches…) ; ceux qu'on ne peut pas lire (corbeilles, dossiers d'un autre
+/// utilisateur) sont sautés, au lieu d'arrêter tout le suivi. Un dossier créé est suivi à son tour.
+#[cfg(target_os = "linux")]
+pub fn surveiller(racine: &Path, rappel: impl Fn(Changement)) -> Result<()> {
+    use notify::event::ModifyKind;
+    use notify::{EventKind, RecursiveMode, Watcher};
+    fn suivre_arbre(veilleur: &mut notify::RecommendedWatcher, racine: &Path, depart: &Path) {
+        let mut pile = vec![depart.to_path_buf()];
+        while let Some(d) = pile.pop() {
+            if veilleur.watch(&d, RecursiveMode::NonRecursive).is_err() {
+                continue;
+            }
+            for (nom, dossier, lien) in lire_dossier(&d) {
+                if dossier && !lien && a_parcourir(&nom.to_string_lossy(), d == racine) {
+                    pile.push(d.join(nom));
+                }
+            }
+        }
+    }
+    let (envoi, reception) = mpsc::channel();
+    let mut veilleur = notify::recommended_watcher(envoi)?;
+    veilleur.watch(racine, RecursiveMode::NonRecursive)?;
+    suivre_arbre(&mut veilleur, racine, racine);
+    for evenement in reception {
+        let Ok(e) = evenement else {
+            rappel(Changement::Debordement);
+            continue;
+        };
+        if e.need_rescan() {
+            rappel(Changement::Debordement);
+            continue;
+        }
+        for chemin in e.paths {
+            let Ok(relatif) = chemin.strip_prefix(racine) else { continue };
+            if !a_suivre(relatif) {
+                continue;
+            }
+            let ajoute = match e.kind {
+                EventKind::Create(_) => true,
+                EventKind::Remove(_) => false,
+                // Un renommage : l'ancien nom n'existe plus, le nouveau si.
+                EventKind::Modify(ModifyKind::Name(_)) => chemin.exists(),
+                _ => continue,
+            };
+            if ajoute {
+                let dossier = chemin.is_dir();
+                if dossier {
+                    suivre_arbre(&mut veilleur, racine, &chemin);
+                }
+                rappel(Changement::Ajoute { chemin, dossier });
+            } else {
+                rappel(Changement::Retire(chemin));
+            }
+        }
+    }
+    bail!("le suivi du disque s'est arrêté")
+}
+
+/// macOS : FSEvents suit tout un dossier et ses sous-dossiers d'un coup.
+#[cfg(target_os = "macos")]
 pub fn surveiller(racine: &Path, rappel: impl Fn(Changement)) -> Result<()> {
     use notify::event::ModifyKind;
     use notify::{EventKind, RecursiveMode, Watcher};
@@ -577,6 +636,10 @@ pub fn disques_fixes() -> Vec<PathBuf> {
     for m in montages {
         let Ok(contenu) = std::fs::read_dir(&m) else { continue };
         for e in contenu.flatten() {
+            // WSL : ses propres dossiers techniques (« wsl », « wslg »), pas des disques.
+            if e.file_name().to_string_lossy().starts_with("wsl") {
+                continue;
+            }
             // Un lien (« Macintosh HD » → /) n'est pas un disque de plus.
             if e.file_type().is_ok_and(|t| t.is_dir()) {
                 racines.push(e.path());
