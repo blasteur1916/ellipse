@@ -2,29 +2,29 @@
 
 <img src="docs/images/logo.png" width="112" alt="">
 
-# Furet
+# Ellipse
 
 [English](README.md) · **Français**
 
 **Retrouve n'importe quel fichier par ce qu'il contient.**<br>
 Une barre, <kbd>Alt</kbd> + <kbd>Espace</kbd>, et tout reste sur ton PC.
 
-[![Version](https://img.shields.io/github/v/release/blasteur1916/furet?style=flat-square&label=b%C3%AAta%20publique&color=6a3df0)](https://github.com/blasteur1916/furet/releases/latest)
-[![Windows 10 et 11](https://img.shields.io/badge/Windows-10%20%7C%2011-3d8bff?style=flat-square&logo=windows&logoColor=white)](https://github.com/blasteur1916/furet/releases/latest)
+[![Version](https://img.shields.io/github/v/release/blasteur1916/ellipse?style=flat-square&label=b%C3%AAta%20publique&color=6a3df0)](https://github.com/blasteur1916/ellipse/releases/latest)
+[![Windows 10 et 11](https://img.shields.io/badge/Windows-10%20%7C%2011-3d8bff?style=flat-square&logo=windows&logoColor=white)](https://github.com/blasteur1916/ellipse/releases/latest)
 [![Licence GPL-3.0](https://img.shields.io/badge/licence-GPL--3.0-2ea44f?style=flat-square)](LICENSE)
 [![100 % local](https://img.shields.io/badge/100%20%25-local-111?style=flat-square)](#-vie-privée)
 
 <br>
 
-<a href="https://github.com/blasteur1916/furet/releases/latest">
+<a href="https://github.com/blasteur1916/ellipse/releases/latest">
   <img src="https://img.shields.io/badge/Télécharger_pour_Windows-3d8bff?style=for-the-badge&logo=windows&logoColor=white" alt="Télécharger pour Windows" height="44">
 </a>
 
-<sub>🧪 <b>Bêta publique</b> : ça marche, mais c'est jeune. <a href="https://github.com/blasteur1916/furet/issues/new">Dis-moi ce qui casse, ce qui manque, ce que tu aimerais chercher</a>.</sub>
+<sub>🧪 <b>Bêta publique</b> : ça marche, mais c'est jeune. <a href="https://github.com/blasteur1916/ellipse/issues/new">Dis-moi ce qui casse, ce qui manque, ce que tu aimerais chercher</a>.</sub>
 
 <br><br>
 
-<img src="docs/images/fr/recherche.png" width="860" alt="La barre de Furet : la recherche « facture d'électricité » trouve un PDF, un PDF scanné, la photo d'un ticket, un message vocal et une archive, avec le passage où les mots apparaissent.">
+<img src="docs/images/fr/recherche.png" width="860" alt="La barre d'Ellipse : la recherche « facture d'électricité » trouve un PDF, un PDF scanné, la photo d'un ticket, un message vocal et une archive, avec le passage où les mots apparaissent.">
 
 <sub>« facture d'électricité » : un PDF, un PDF scanné, la photo d'un ticket, un message vocal et une archive. Aucun n'a « électricité » dans son nom.</sub>
 
@@ -32,19 +32,19 @@ Une barre, <kbd>Alt</kbd> + <kbd>Espace</kbd>, et tout reste sur ton PC.
 
 <br>
 
-## Pourquoi Furet
+## Pourquoi Ellipse
 
-Tu te souviens de ce qu'il y avait **dans** un fichier, rarement de son nom. Furet cherche comme toi :
+Tu te souviens de ce qu'il y avait **dans** un fichier, rarement de son nom. Ellipse cherche comme toi :
 
-- **Par le sens** — « photo d'un chien », « la réunion où on parlait du budget », « contrat de location » : Furet comprend le texte, les images et ce qui se dit dans les sons et les vidéos.
+- **Par le sens** — « photo d'un chien », « la réunion où on parlait du budget », « contrat de location » : Ellipse comprend le texte, les images et ce qui se dit dans les sons et les vidéos.
 - **Par le nom, partout** — tous les fichiers de tous les disques, en quelques millisecondes, suivis en direct.
 - **Sans rien envoyer** — le modèle tourne sur ton PC. Pas de compte, pas de nuage, pas d'abonnement.
 
 <br>
 
-## Tout ce que Furet comprend
+## Tout ce qu'Ellipse comprend
 
-| | Type | Ce que Furet y trouve |
+| | Type | Ce qu'Ellipse y trouve |
 |:-:|---|---|
 | 🖼️ | **Photos** | ce qu'elles montrent, le texte qu'elles contiennent (OCR), où et quand elles ont été prises |
 | 📄 | **PDF** | leur texte, même scannés, avec la bonne page |
@@ -56,6 +56,8 @@ Tu te souviens de ce qu'il y avait **dans** un fichier, rarement de son nom. Fur
 | 🗜️ | **Archives .zip** | les photos, PDF, documents et notes rangés dedans |
 
 Les **mots exacts** comptent aussi : un numéro de facture ou un nom propre est retrouvé, avec le passage où il apparaît.
+
+**Les applications passent en premier** : tape `chrome`, Google Chrome est là, prêt à lancer (`vsc` marche pour Visual Studio Code).
 
 <br>
 
@@ -74,7 +76,7 @@ Aucune de ces photos ne s'appelle « chien ».
 <td width="50%" valign="top">
 
 ### Filtre en écrivant
-Type, date, taille : tape-les simplement, Furet les comprend.
+Type, date, taille : tape-les simplement, Ellipse les comprend.
 
 <img src="docs/images/fr/filtres.png" alt="La recherche « photos 2024 » affiche les pastilles Photos et 2024, et les photos prises en 2024.">
 
@@ -102,7 +104,7 @@ D'après leur GPS, sans aucun service en ligne.
 
 ### Les filtres
 
-| Tu tapes | Furet comprend |
+| Tu tapes | Ellipse comprend |
 |---|---|
 | `pdf facture` | les PDF qui parlent de factures |
 | `photos 2024` · `photos mars 2023` | les photos prises à cette date |
@@ -119,7 +121,7 @@ Nomme une photo `elliot.jpg` : chercher « elliot » retrouve aussi les autres p
 
 | Touche | Action |
 |---|---|
-| <kbd>Alt</kbd> + <kbd>Espace</kbd> | ouvrir Furet, depuis n'importe où |
+| <kbd>Alt</kbd> + <kbd>Espace</kbd> | ouvrir Ellipse, depuis n'importe où |
 | <kbd>↑</kbd> <kbd>↓</kbd> | choisir un résultat |
 | <kbd>Entrée</kbd> | ouvrir |
 | <kbd>Espace</kbd> (après les flèches) ou <kbd>Maj</kbd> + <kbd>Espace</kbd> | aperçu |
@@ -139,17 +141,17 @@ Tu peux aussi **glisser** un résultat vers une autre appli ou un dossier : le f
 <tr>
 <td width="46%" valign="top">
 
-1. Télécharge **`Furet_…_x64-setup.exe`** sur la page des [versions](https://github.com/blasteur1916/furet/releases/latest) et lance-le. Aucun droit administrateur n'est demandé.
+1. Télécharge **`Ellipse_…_x64-setup.exe`** sur la page des [versions](https://github.com/blasteur1916/ellipse/releases/latest) et lance-le. Aucun droit administrateur n'est demandé.
 2. L'installateur n'est pas encore signé : si Windows affiche « Windows a protégé votre PC », clique sur **Informations complémentaires**, puis **Exécuter quand même**.
-3. Choisis tes dossiers et tes options, puis **Télécharger et commencer**. Furet télécharge une seule fois son moteur et ses modèles (1,1 à 1,6 Go), chacun vérifié ; un téléchargement coupé reprend où il en était.
-4. C'est prêt : <kbd>Alt</kbd> + <kbd>Espace</kbd>. Furet lit tes fichiers en arrière-plan ; tu peux chercher par le nom tout de suite.
+3. Choisis tes dossiers et tes options, puis **Télécharger et commencer**. Ellipse télécharge une seule fois son moteur et ses modèles (1,1 à 1,6 Go), chacun vérifié ; un téléchargement coupé reprend où il en était.
+4. C'est prêt : <kbd>Alt</kbd> + <kbd>Espace</kbd>. Ellipse lit tes fichiers en arrière-plan ; tu peux chercher par le nom tout de suite.
 
 Les mises à jour arrivent toutes seules.
 
 </td>
 <td width="54%" valign="top">
 
-<img src="docs/images/fr/accueil.png" alt="L'accueil de Furet : dossiers à explorer, options, et le bouton « Télécharger et commencer ».">
+<img src="docs/images/fr/accueil.png" alt="L'accueil d'Ellipse : dossiers à explorer, options, et le bouton « Télécharger et commencer ».">
 
 </td>
 </tr>
@@ -162,9 +164,9 @@ Les mises à jour arrivent toutes seules.
 ## 🔒 Vie privée
 
 - **Tout se passe sur ton PC.** Tes fichiers, ce que tu cherches et l'index ne quittent jamais ta machine.
-- Furet ne se connecte à internet que pour télécharger son moteur et ses modèles la première fois, et pour vérifier les mises à jour.
+- Ellipse ne se connecte à internet que pour télécharger son moteur et ses modèles la première fois, et pour vérifier les mises à jour.
 - Ses journaux ne contiennent ni le contenu de tes fichiers ni ce que tu cherches.
-- Retirer un dossier des réglages retire ses fichiers de l'index. Tout est rangé dans `%LOCALAPPDATA%\app.furet` et `%APPDATA%\app.furet`.
+- Retirer un dossier des réglages retire ses fichiers de l'index. Tout est rangé dans `%LOCALAPPDATA%\app.ellipse` et `%APPDATA%\app.ellipse`.
 
 <br>
 
@@ -188,9 +190,9 @@ flowchart LR
     I --> S["Résultats et aperçu"]
 ```
 
-Chaque passage de texte, chaque photo, chaque moment d'une vidéo devient un **vecteur**, une liste de nombres qui résume son sens. Ta recherche devient elle aussi un vecteur, et Furet cherche les plus proches, en plus des mots exacts et des noms.
+Chaque passage de texte, chaque photo, chaque moment d'une vidéo devient un **vecteur**, une liste de nombres qui résume son sens. Ta recherche devient elle aussi un vecteur, et Ellipse cherche les plus proches, en plus des mots exacts et des noms.
 
-| Pour | Furet utilise |
+| Pour | Ellipse utilise |
 |---|---|
 | Le sens des textes, des images et des sons | [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2) avec [llama.cpp](https://github.com/ggml-org/llama.cpp) (Vulkan ou processeur) |
 | La parole | [Parakeet TDT v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) avec [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) |
@@ -217,11 +219,11 @@ Il faut [Rust](https://rustup.rs) 1.88 ou plus récent, [Node.js](https://nodejs
 ```powershell
 cd app
 pnpm install
-pnpm tauri build --no-bundle   # → target\release\furet.exe
+pnpm tauri build --no-bundle   # → target\release\ellipse.exe
 pnpm tauri build               # → et l'installateur, dans target\release\bundle\nsis
 ```
 
-Au premier lancement, l'appli compilée télécharge son moteur et ses modèles comme la version installée. La variable `FURET_RACINE` lui donne un autre dossier.
+Au premier lancement, l'appli compilée télécharge son moteur et ses modèles comme la version installée. La variable `ELLIPSE_RACINE` lui donne un autre dossier.
 
 ```
 moteur/   la librairie : indexation, recherche, OCR, transcription, visages, lieux, filtres
@@ -230,9 +232,9 @@ app/      l'appli : interface React (app/src) et Rust (app/src-tauri)
 ```
 
 ```powershell
-cargo build --release -p furet-proto
-target\release\furet-proto.exe --racine <dossier de Furet> index C:\Users\moi\Documents
-target\release\furet-proto.exe --racine <dossier de Furet> cherche "facture d'électricité"
+cargo build --release -p ellipse-proto
+target\release\ellipse-proto.exe --racine <dossier d'Ellipse> index C:\Users\moi\Documents
+target\release\ellipse-proto.exe --racine <dossier d'Ellipse> cherche "facture d'électricité"
 ```
 
 </details>
@@ -241,11 +243,11 @@ target\release\furet-proto.exe --racine <dossier de Furet> cherche "facture d'é
 
 ## Tes retours
 
-Furet est en **bêta publique** (0.9). Chaque retour aide : une recherche qui n'a rien trouvé, un type de fichier mal lu, un plantage, un PC qui rame, une idée.
+Ellipse est en **bêta publique** (0.9). Chaque retour aide : une recherche qui n'a rien trouvé, un type de fichier mal lu, un plantage, un PC qui rame, une idée.
 
-- [Ouvre une issue](https://github.com/blasteur1916/furet/issues/new), en français ou en anglais.
+- [Ouvre une issue](https://github.com/blasteur1916/ellipse/issues/new), en français ou en anglais.
 - Utile à préciser : ta version de Windows, ta carte graphique, le nombre de fichiers indexés, et ce que tu as cherché (si ça ne te gêne pas).
-- Les journaux sont dans `%LOCALAPPDATA%\app.furet\logs` (jamais le contenu de tes fichiers ni tes recherches).
+- Les journaux sont dans `%LOCALAPPDATA%\app.ellipse\logs` (jamais le contenu de tes fichiers ni tes recherches).
 
 <br>
 
@@ -258,7 +260,7 @@ Furet est en **bêta publique** (0.9). Chaque retour aide : une recherche qui n'
 
 ## Licence
 
-Furet est un logiciel libre, sous licence [GPL-3.0](LICENSE).
+Ellipse est un logiciel libre, sous licence [GPL-3.0](LICENSE).
 
 <details>
 <summary>Ce qu'il télécharge et utilise</summary>

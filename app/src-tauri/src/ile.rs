@@ -2,14 +2,20 @@
 //! principal. Elle ne prend jamais le clavier d'elle-même. Windows limite son dessin et ses clics à la
 //! région que l'interface envoie (la forme de l'île) : ailleurs, les clics vont aux fenêtres du dessous.
 //! Fermée, la région est vide : l'île est invisible et entièrement traversée par les clics.
+//! Linux et macOS n'ont pas de région : la fenêtre est cachée quand l'île est fermée, montrée sinon.
 
+#[cfg(windows)]
 use std::ffi::c_void;
+#[cfg(windows)]
 use std::sync::atomic::{AtomicIsize, Ordering};
 
 use serde::Deserialize;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
+#[cfg(windows)]
 use windows::Win32::Foundation::HWND;
+#[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{CombineRgn, CreateRectRgn, DeleteObject, RGN_OR, SetWindowRgn};
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GetWindowLongPtrW, HWND_TOPMOST, SET_WINDOW_POS_FLAGS, SW_SHOWNOACTIVATE, SWP_FRAMECHANGED,
     SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW,
@@ -31,8 +37,10 @@ pub struct Rect {
     pub height: f64,
 }
 
+#[cfg(windows)]
 static HWND_ILE: AtomicIsize = AtomicIsize::new(0);
 
+#[cfg(windows)]
 pub fn hwnd() -> Option<HWND> {
     match HWND_ILE.load(Ordering::Relaxed) {
         0 => None,
@@ -40,6 +48,7 @@ pub fn hwnd() -> Option<HWND> {
     }
 }
 
+#[cfg(windows)]
 /// Place la fenêtre, lui donne ses styles natifs, la rend invisible (région vide) et l'affiche.
 pub fn installer(app: &AppHandle) -> tauri::Result<()> {
     let fenetre = app.get_webview_window(LABEL).expect("la fenêtre de l'île est déclarée dans tauri.conf.json");
@@ -70,6 +79,7 @@ pub fn placer(fenetre: &WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
 /// Les styles de l'île, en gardant les autres : jamais active d'elle-même (NOACTIVATE), pas de bouton
 /// dans la barre des tâches ni dans Alt+Tab (TOOLWINDOW), et LAYERED, sans quoi la région rendrait
 /// opaques les pixels transparents. Puis tout en haut de la pile des fenêtres.
@@ -88,6 +98,7 @@ unsafe fn poser_styles(h: HWND, en_plus: SET_WINDOW_POS_FLAGS) {
     }
 }
 
+#[cfg(windows)]
 /// Repasse au-dessus des autres fenêtres « toujours au-dessus » (Gestionnaire des tâches, lecteurs…),
 /// et repose les styles, que l'interpréteur de commandes enlève parfois.
 pub fn remettre_au_dessus() {
@@ -97,6 +108,7 @@ pub fn remettre_au_dessus() {
     }
 }
 
+#[cfg(windows)]
 /// `rects` en pixels physiques de la fenêtre, arrondis vers l'extérieur pour ne rien couper.
 fn appliquer_region(h: HWND, rects: &[Rect]) {
     // SAFETY : les régions sont créées et libérées ici ; après un SetWindowRgn réussi, Windows
@@ -120,6 +132,7 @@ fn appliquer_region(h: HWND, rects: &[Rect]) {
     }
 }
 
+#[cfg(windows)]
 /// Limite le dessin et les clics de l'île à `rects` (pixels CSS). Une liste vide la rend invisible.
 #[tauri::command]
 pub fn ile_region(fenetre: WebviewWindow, rects: Vec<Rect>) -> Result<(), String> {
@@ -137,6 +150,7 @@ pub fn ile_region(fenetre: WebviewWindow, rects: Vec<Rect>) -> Result<(), String
     Ok(())
 }
 
+#[cfg(windows)]
 /// Île fermée : WebView2 libère ce qu'il peut (caches, mémoire graphique) ; normale dès qu'elle s'ouvre.
 #[tauri::command]
 pub fn ile_memoire(fenetre: WebviewWindow, basse: bool) {
@@ -154,3 +168,28 @@ pub fn ile_memoire(fenetre: WebviewWindow, basse: bool) {
         }
     });
 }
+
+/// Hors de Windows : placée en haut de l'écran, cachée jusqu'à la première ouverture.
+#[cfg(not(windows))]
+pub fn installer(app: &AppHandle) -> tauri::Result<()> {
+    let fenetre = app.get_webview_window(LABEL).expect("la fenêtre de l'île est déclarée dans tauri.conf.json");
+    placer(&fenetre)
+}
+
+#[cfg(not(windows))]
+pub fn remettre_au_dessus() {}
+
+/// Hors de Windows, pas de région : l'île fermée (liste vide) est cachée, ouverte elle est montrée.
+#[cfg(not(windows))]
+#[tauri::command]
+pub fn ile_region(fenetre: WebviewWindow, rects: Vec<Rect>) -> Result<(), String> {
+    if rects.len() > RECTANGLES_MAX {
+        return Err(format!("trop de rectangles : {}", rects.len()));
+    }
+    let r = if rects.is_empty() { fenetre.hide() } else { fenetre.show() };
+    r.map_err(|e| e.to_string())
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+pub fn ile_memoire(_fenetre: WebviewWindow, _basse: bool) {}

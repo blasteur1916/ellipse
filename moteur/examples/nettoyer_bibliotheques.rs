@@ -1,6 +1,6 @@
 //! Une fois : retire de l'index le code des grandes bibliothèques lu par une version précédente (il reste
 //! trouvable par son nom). Sans `--oublier`, ne fait que compter.
-//! cargo run --release -p furet-moteur --example nettoyer_bibliotheques -- <index.sqlite> <dossier>... [--oublier]
+//! cargo run --release -p ellipse-moteur --example nettoyer_bibliotheques -- <index.sqlite> <dossier>... [--oublier]
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -10,11 +10,11 @@ fn main() -> anyhow::Result<()> {
     let oublier = args.iter().any(|a| a == "--oublier");
     let index = PathBuf::from(&args[0]);
     let dossiers: Vec<&String> = args[1..].iter().filter(|a| !a.starts_with("--")).collect();
-    let mut base = furet_moteur::base::ouvrir(&index)?;
-    let etats = furet_moteur::base::etats(&base)?;
+    let mut base = ellipse_moteur::base::ouvrir(&index)?;
+    let etats = ellipse_moteur::base::etats(&base)?;
     let mut ids = Vec::new();
     for d in dossiers {
-        let en_bibliotheque: HashSet<PathBuf> = furet_moteur::indexation::parcours_detaille(Path::new(d))
+        let en_bibliotheque: HashSet<PathBuf> = ellipse_moteur::indexation::parcours_detaille(Path::new(d))
             .into_iter()
             .filter(|f| f.3)
             .map(|f| f.0)
@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
     println!("{} fichiers de l'index sont du code de grandes bibliothèques : {a_retirer} morceaux sur {morceaux}", ids.len());
     if oublier {
         let t = Instant::now();
-        furet_moteur::base::oublier(&mut base, &ids)?;
+        ellipse_moteur::base::oublier(&mut base, &ids)?;
         println!("retirés en {:.0} s", t.elapsed().as_secs_f64());
         let t = Instant::now();
         let n = alleger(&mut base)?;
@@ -62,7 +62,7 @@ fn archives(base: &mut rusqlite::Connection) -> anyhow::Result<usize> {
                 std::fs::File::open(chemin)
                     .ok()
                     .and_then(|f| zip::ZipArchive::new(f).ok())
-                    .is_some_and(|z| furet_moteur::fichiers::archive_de_logiciel(z.file_names().filter_map(|n| n.ok())))
+                    .is_some_and(|z| ellipse_moteur::fichiers::archive_de_logiciel(z.file_names().filter_map(|n| n.ok())))
             })
             .map(|(id, _)| id)
             .collect()
@@ -75,7 +75,7 @@ fn archives(base: &mut rusqlite::Connection) -> anyhow::Result<usize> {
         )?;
         req.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
             .filter_map(|r| r.ok())
-            .filter(|(_, partie)| !furet_moteur::fichiers::de_personne_dans_archive(Path::new(partie)))
+            .filter(|(_, partie)| !ellipse_moteur::fichiers::de_personne_dans_archive(Path::new(partie)))
             .map(|(id, _)| id)
             .collect()
     };

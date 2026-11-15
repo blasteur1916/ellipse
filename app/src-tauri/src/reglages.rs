@@ -1,4 +1,4 @@
-//! Les réglages de Furet : les dossiers indexés et les options, dans `reglages.json`
+//! Les réglages d'Ellipse : les dossiers indexés et les options, dans `reglages.json`
 //! (le dossier de configuration de l'appli). Portable : rien ici n'est propre à Windows.
 
 use std::path::{Path, PathBuf};
@@ -28,7 +28,7 @@ pub struct Reglages {
     pub pause_jeu: bool,
     /// Lire aussi le code des grandes bibliothèques (moteurs de jeu, SDK…), pas seulement leurs noms.
     pub bibliotheques: bool,
-    /// Lancer Furet avec Windows.
+    /// Lancer Ellipse avec Windows.
     pub demarrage: bool,
     /// « auto » (la langue de Windows), « en » ou « fr ».
     pub langue: String,
@@ -62,9 +62,9 @@ static APP: OnceLock<AppHandle> = OnceLock::new();
 /// La langue des textes : celle du réglage, sinon celle du système (le français pour un Windows en français,
 /// l'anglais pour tout le reste).
 fn appliquer_langue(r: &Reglages) {
-    use furet_moteur::langue::{Langue, definir};
-    // Pour les essais : `FURET_LANGUE=en` ou `fr` passe avant le réglage.
-    let forcee = std::env::var("FURET_LANGUE").ok();
+    use ellipse_moteur::langue::{Langue, definir};
+    // Pour les essais : `ELLIPSE_LANGUE=en` ou `fr` passe avant le réglage.
+    let forcee = std::env::var("ELLIPSE_LANGUE").ok();
     let francais = match forcee.as_deref().unwrap_or(r.langue.as_str()) {
         "fr" => true,
         "en" => false,
@@ -76,13 +76,13 @@ fn appliquer_langue(r: &Reglages) {
 /// La langue des textes de l'interface : « fr » ou « en ».
 #[tauri::command]
 pub fn langue() -> &'static str {
-    if furet_moteur::langue::francais() { "fr" } else { "en" }
+    if ellipse_moteur::langue::francais() { "fr" } else { "en" }
 }
 
-/// Inscrit Furet au démarrage de Windows, ou l'en retire, selon le réglage (pas en mode de test).
+/// Inscrit Ellipse au démarrage de Windows, ou l'en retire, selon le réglage (pas en mode de test).
 pub fn appliquer_demarrage() {
     let Some(app) = APP.get() else { return };
-    if std::env::var_os("FURET_TEST").is_some() {
+    if std::env::var_os("ELLIPSE_TEST").is_some() {
         return;
     }
     let lancement = app.autolaunch();
@@ -95,7 +95,7 @@ pub fn appliquer_demarrage() {
     }
 }
 
-/// Aucun réglage n'existait au lancement : c'est la première fois que Furet tourne sur ce PC.
+/// Aucun réglage n'existait au lancement : c'est la première fois qu'Ellipse tourne sur ce PC.
 pub fn premier_lancement() -> bool {
     PREMIER_LANCEMENT.load(Ordering::Relaxed)
 }
@@ -183,14 +183,14 @@ pub fn reglages_ecrire(reglages: Reglages) -> Reglages {
 /// Choisit un dossier à indexer avec le sélecteur du système.
 #[tauri::command]
 pub async fn ajouter_dossier(app: AppHandle) -> Result<Reglages, String> {
-    let titre = furet_moteur::langue::t("Dossier à indexer", "Folder to index");
+    let titre = ellipse_moteur::langue::t("Dossier à indexer", "Folder to index");
     let Some(choisi) = app.dialog().file().set_title(titre).blocking_pick_folder() else {
         return Ok(lire());
     };
     let chemin = choisi.into_path().map_err(|e| e.to_string())?;
     let mut r = lire();
     if !ajouter_sans_doublon(&mut r.dossiers, chemin) {
-        return Err(furet_moteur::langue::t(
+        return Err(ellipse_moteur::langue::t(
             "Ce dossier est déjà indexé (il est dans un dossier de la liste).",
             "This folder is already indexed (it is inside a folder of the list).",
         )

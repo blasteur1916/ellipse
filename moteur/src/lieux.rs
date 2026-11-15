@@ -1,6 +1,6 @@
 //! Les lieux et les dates des photos : les coordonnées GPS et la date de prise de vue lues dans leurs
 //! métadonnées (EXIF), puis la ville, la région et le pays les plus proches d'après la liste des villes
-//! installée avec Furet (`modeles/lieux`, GeoNames, CC BY 4.0). Rien ne passe par internet. Portable.
+//! installée avec Ellipse (`modeles/lieux`, GeoNames, CC BY 4.0). Rien ne passe par internet. Portable.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -459,7 +459,7 @@ mod tests {
         assert!((d - 344.0).abs() < 5.0, "{d}");
     }
 
-    /// Sur la vraie liste : cargo test -p furet-moteur --lib lieux -- --ignored
+    /// Sur la vraie liste : cargo test -p ellipse-moteur --lib lieux -- --ignored
     #[test]
     #[ignore]
     fn villes_proches() {

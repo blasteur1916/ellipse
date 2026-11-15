@@ -9,7 +9,16 @@ use std::time::{Duration, Instant};
 use tungstenite::Message;
 
 const MODELE: &str = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8";
-const PROGRAMME: &str = r"sherpa-onnx\sherpa-onnx-v2.0.1-win-x64-shared-MD-Release-no-tts\bin\sherpa-onnx-offline-websocket-server.exe";
+/// Le dossier de sherpa-onnx (dans `outils/sherpa-onnx`) : son programme est dans `bin`, ses bibliothèques
+/// dans `bin` (Windows) ou `lib`.
+#[cfg(windows)]
+const DOSSIER: &str = "sherpa-onnx-v2.0.1-win-x64-shared-MD-Release-no-tts";
+#[cfg(target_os = "linux")]
+const DOSSIER: &str = "sherpa-onnx-v2.0.1-linux-x64-shared-no-tts";
+#[cfg(target_os = "macos")]
+const DOSSIER: &str = "sherpa-onnx-v2.0.1-osx-arm64-shared-no-tts";
+const PROGRAMME: &str =
+    if cfg!(windows) { "sherpa-onnx-offline-websocket-server.exe" } else { "sherpa-onnx-offline-websocket-server" };
 
 pub struct Transcripteur {
     processus: Child,
@@ -26,7 +35,8 @@ pub struct Client {
 impl Transcripteur {
     /// `requetes` transcriptions en parallèle, chacune sur `coeurs` cœurs (au-delà de 4, Parakeet ne va pas plus vite).
     pub fn demarrer(racine: &Path, requetes: usize, coeurs: usize, journal: &Path) -> Result<Self> {
-        let exe = racine.join("outils").join(PROGRAMME);
+        let dossier = racine.join("outils").join("sherpa-onnx").join(DOSSIER);
+        let exe = dossier.join("bin").join(PROGRAMME);
         let m = racine.join("modeles").join(MODELE);
         let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
         let log = File::create(journal)?;
@@ -41,6 +51,7 @@ impl Transcripteur {
             .arg(format!("--joiner={}", m.join("joiner.int8.onnx").display()))
             .arg(format!("--tokens={}", m.join("tokens.txt").display()))
             .arg("--model-type=nemo_transducer")
+            .env(if cfg!(target_os = "macos") { "DYLD_LIBRARY_PATH" } else { "LD_LIBRARY_PATH" }, dossier.join("lib"))
             .stdin(Stdio::null())
             .stdout(log.try_clone()?)
             .stderr(log)

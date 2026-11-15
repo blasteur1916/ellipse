@@ -1,17 +1,17 @@
 //! Essai : les scores d'une recherche qui ne veut rien dire se détachent-ils moins du reste que ceux d'une
 //! vraie recherche ? N'affiche que des nombres et des types de fichiers (jamais le contenu).
-//! cargo run --release -p furet-moteur --example calibrer_requetes
+//! cargo run --release -p ellipse-moteur --example calibrer_requetes
 
 use std::collections::HashMap;
 use std::path::Path;
 
-use furet_moteur::{base, pertinence, serveur::Serveur};
+use ellipse_moteur::{base, pertinence, serveur::Serveur};
 use rusqlite::params;
 
 fn main() -> anyhow::Result<()> {
     let racine = Path::new(r"D:\furet");
     let b = base::ouvrir(&racine.join("donnees").join("index.sqlite"))?;
-    let serveur = Serveur::demarrer_requetes(racine, &std::env::temp_dir().join("furet-calibrer.log"))?;
+    let serveur = Serveur::demarrer_requetes(racine, &std::env::temp_dir().join("ellipse-calibrer.log"))?;
     let client = serveur.client();
     let requetes = [
         ("absurde", "zorglub"),

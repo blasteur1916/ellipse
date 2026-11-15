@@ -397,7 +397,7 @@ impl DossierTemporaire {
     fn nouveau() -> Result<Self> {
         static NUMERO: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = NUMERO.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let chemin = std::env::temp_dir().join(format!("furet-archive-{}-{n}", std::process::id()));
+        let chemin = std::env::temp_dir().join(format!("ellipse-archive-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&chemin)?;
         Ok(DossierTemporaire { chemin })
     }

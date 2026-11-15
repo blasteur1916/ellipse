@@ -1,4 +1,4 @@
-//! Les fichiers ouverts depuis Furet (ouverts, montrés, copiés, glissés) : ils remontent dans les résultats
+//! Les fichiers ouverts depuis Ellipse (ouverts, montrés, copiés, glissés) : ils remontent dans les résultats
 //! par le nom, et la barre vide les propose. Gardé dans `historique.json` (dossier de configuration de
 //! l'appli), sur ce PC seulement. Portable.
 

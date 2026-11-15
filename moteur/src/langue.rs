@@ -1,4 +1,4 @@
-//! La langue des textes que Furet montre : anglais (par défaut) ou français. L'appli la choisit au lancement
+//! La langue des textes qu'Ellipse montre : anglais (par défaut) ou français. L'appli la choisit au lancement
 //! (réglage, sinon la langue du système). Portable.
 
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -532,7 +532,7 @@ mod tests {
     /// Un index neuf (premier lancement) s'ouvre, et se rouvre (les ajouts de colonnes ne cassent rien).
     #[test]
     fn index_neuf() {
-        let chemin = std::env::temp_dir().join(format!("furet-neuf-{}.sqlite", std::process::id()));
+        let chemin = std::env::temp_dir().join(format!("ellipse-neuf-{}.sqlite", std::process::id()));
         let _ = std::fs::remove_file(&chemin);
         drop(super::ouvrir(&chemin).expect("index neuf"));
         drop(super::ouvrir(&chemin).expect("index rouvert"));
@@ -547,7 +547,7 @@ mod tests {
     #[ignore]
     fn vitesse_recherche() {
         use std::time::Instant;
-        let chemin = std::env::temp_dir().join("furet-vitesse.sqlite");
+        let chemin = std::env::temp_dir().join("ellipse-vitesse.sqlite");
         let _ = std::fs::remove_file(&chemin);
         let mut base = super::ouvrir(&chemin).unwrap();
         let mut graine = 1u64;

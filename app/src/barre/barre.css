@@ -3,6 +3,8 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  /* Au plus la hauteur de l'île : au-delà, la liste défile. */
+  max-height: 100%;
   padding: 0 10px;
 }
 
@@ -55,6 +57,13 @@
 }
 
 .barre-liste {
+  /* Repère des positions des lignes (offsetTop), pour faire défiler la liste seule. */
+  position: relative;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
   padding: 6px 0 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
   transition: opacity 0.12s ease-out;

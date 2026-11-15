@@ -16,7 +16,7 @@ export const installer = () => invoke<void>("installer");
 export const raccourciActuel = () => invoke<string>("raccourci_actuel");
 export const installerMiseAJour = () => invoke<void>("installer_mise_a_jour");
 
-/** La version de Furet téléchargée et prête à être installée, s'il y en a une. */
+/** La version d'Ellipse téléchargée et prête à être installée, s'il y en a une. */
 export function useMiseAJour(): string | null {
   const [version, setVersion] = useState<string | null>(null);
   useEffect(() => {
@@ -25,7 +25,7 @@ export function useMiseAJour(): string | null {
     invoke<string | null>("mise_a_jour_prete")
       .then((v) => vivant && setVersion(v))
       .catch(() => {});
-    listen<string>("furet://mise-a-jour", (e) => setVersion(e.payload))
+    listen<string>("ellipse://mise-a-jour", (e) => setVersion(e.payload))
       .then((stop) => (vivant ? (arreter = stop) : stop()))
       .catch(() => {});
     return () => {
@@ -45,7 +45,7 @@ export function useInstallation(): EtatInstallation | null {
     etatInstallation()
       .then((e) => vivant && setEtat(e))
       .catch(() => {});
-    listen<EtatInstallation>("furet://installation", (e) => setEtat(e.payload))
+    listen<EtatInstallation>("ellipse://installation", (e) => setEtat(e.payload))
       .then((stop) => (vivant ? (arreter = stop) : stop()))
       .catch(() => {});
     return () => {

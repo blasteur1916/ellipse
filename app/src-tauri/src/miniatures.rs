@@ -1,28 +1,35 @@
 //! Les miniatures de Windows, les mêmes que l'Explorateur : l'aperçu des photos, PDF, vidéos et documents,
-//! l'icône du type pour le reste.
+//! l'icône du type pour le reste. Linux et macOS : faites ici pour les photos, les PDF et les vidéos, l'icône
+//! pour les applications ; rien pour le reste (l'interface montre alors le pictogramme du type).
 //! Une à la fois, sur un seul fil : certains générateurs d'aperçus échouent s'ils sont appelés de
-//! plusieurs fils en même temps. Servies à l'interface par l'adresse `http://furet-mini.localhost/<clé>`.
+//! plusieurs fils en même temps. Servies à l'interface par l'adresse `http://ellipse-mini.localhost/<clé>`.
 
 use std::collections::{HashMap, VecDeque};
+#[cfg(windows)]
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 use tauri::http::{Response, StatusCode, header};
+#[cfg(windows)]
 use windows::Win32::Foundation::SIZE;
+#[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, DeleteObject, GetDC, GetDIBits, GetObjectW, HBITMAP,
     ReleaseDC,
 };
+#[cfg(windows)]
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+#[cfg(windows)]
 use windows::Win32::UI::Shell::{
     IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY, SIIGBF_INCACHEONLY,
     SIIGBF_RESIZETOFIT,
 };
+#[cfg(windows)]
 use windows::core::HSTRING;
 
-pub const SCHEMA: &str = "furet-mini";
+pub const SCHEMA: &str = "ellipse-mini";
 /// Côté en pixels : la miniature fait 40 px à l'écran, deux fois plus pour les écrans à haute densité.
 const COTE: i32 = 80;
 /// Miniatures gardées en mémoire (≈ 10 Ko chacune) : retaper une recherche ne les refait pas.
@@ -33,12 +40,12 @@ const COTE_GRAND: i32 = 640;
 
 /// L'adresse de la miniature d'un fichier proposé.
 pub fn adresse(cle: &str) -> String {
-    format!("http://{SCHEMA}.localhost/{cle}")
+    format!("{}{cle}", crate::apercus::base_adresse(SCHEMA))
 }
 
 /// La même, en grand (pas gardée en mémoire ici : la WebView la garde un moment).
 pub fn adresse_grande(cle: &str) -> String {
-    format!("http://{SCHEMA}.localhost/{cle}?grand")
+    format!("{}{cle}?grand", crate::apercus::base_adresse(SCHEMA))
 }
 
 type Demande = (PathBuf, String, i32, tauri::UriSchemeResponder);
@@ -46,7 +53,7 @@ type Demande = (PathBuf, String, i32, tauri::UriSchemeResponder);
 static FIL: OnceLock<Sender<Demande>> = OnceLock::new();
 static CACHE: LazyLock<Mutex<(HashMap<String, Arc<Vec<u8>>>, VecDeque<String>)>> = LazyLock::new(Default::default);
 
-/// Répond à une demande `furet-mini` ; `chemin` est celui que la recherche a proposé pour cette clé.
+/// Répond à une demande `ellipse-mini` ; `chemin` est celui que la recherche a proposé pour cette clé.
 pub fn servir(chemin: Option<PathBuf>, cle: String, grand: bool, repondeur: tauri::UriSchemeResponder) {
     let Some(chemin) = chemin else {
         repondeur.respond(reponse(None));
@@ -59,7 +66,7 @@ pub fn servir(chemin: Option<PathBuf>, cle: String, grand: bool, repondeur: taur
     }
     let fil = FIL.get_or_init(|| {
         let (envoi, reception) = mpsc::channel::<Demande>();
-        let lance = std::thread::Builder::new().name("furet-miniatures".into()).spawn(move || {
+        let lance = std::thread::Builder::new().name("ellipse-miniatures".into()).spawn(move || {
             for (chemin, cle, cote, repondeur) in reception {
                 let png = miniature(&chemin, cote);
                 if let Some(png) = &png
@@ -93,12 +100,13 @@ fn garder(cle: String, png: Vec<u8>) {
     }
 }
 
-fn reponse(png: Option<Vec<u8>>) -> Response<Vec<u8>> {
-    let r = match png {
-        Some(png) => Response::builder()
-            .header(header::CONTENT_TYPE, "image/png")
+fn reponse(image: Option<Vec<u8>>) -> Response<Vec<u8>> {
+    let r = match image {
+        // PNG en général ; JPEG pour une page de PDF ou une image de vidéo (Linux, macOS).
+        Some(image) => Response::builder()
+            .header(header::CONTENT_TYPE, if image.starts_with(&[0xFF, 0xD8]) { "image/jpeg" } else { "image/png" })
             .header(header::CACHE_CONTROL, "max-age=3600")
-            .body(png),
+            .body(image),
         // Pas gardée par la WebView : elle viendra peut-être plus tard.
         None => Response::builder().status(StatusCode::NOT_FOUND).header(header::CACHE_CONTROL, "no-store").body(Vec::new()),
     };
@@ -106,6 +114,7 @@ fn reponse(png: Option<Vec<u8>>) -> Response<Vec<u8>> {
 }
 
 /// La miniature PNG de `chemin`, au plus `cote` × `cote` pixels.
+#[cfg(windows)]
 fn miniature(chemin: &Path, cote: i32) -> Option<Vec<u8>> {
     // SAFETY : COM est initialisé pour ce fil (sans effet s'il l'est déjà) ; l'image est créée par
     // l'interpréteur de commandes et libérée ici.
@@ -118,7 +127,7 @@ fn miniature(chemin: &Path, cote: i32) -> Option<Vec<u8>> {
         // Un fichier seulement en ligne (OneDrive, téléphone relié) : la miniature déjà connue de Windows, sans
         // quoi le calculer téléchargerait le fichier.
         let mut options = SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK;
-        if furet_moteur::fichiers::en_ligne(chemin) {
+        if ellipse_moteur::fichiers::en_ligne(chemin) {
             options |= SIIGBF_INCACHEONLY;
         }
         // Certains générateurs d'aperçus échouent au lieu de se rabattre sur l'icône : on la demande alors.
@@ -134,6 +143,7 @@ fn miniature(chemin: &Path, cote: i32) -> Option<Vec<u8>> {
 }
 
 /// Les pixels en RGBA (alpha non prémultiplié), ligne du haut d'abord.
+#[cfg(windows)]
 unsafe fn lire(image: HBITMAP) -> Option<(u32, u32, Vec<u8>)> {
     unsafe {
         let mut info = BITMAP::default();
@@ -190,4 +200,41 @@ fn png(largeur: u32, hauteur: u32, rgba: &[u8]) -> Option<Vec<u8>> {
         ecrivain.write_image_data(rgba).ok()?;
     }
     Some(sortie)
+}
+
+/// Linux et macOS : l'icône d'une application, une photo réduite, la première page d'un PDF ou une image
+/// d'une vidéo (à 1 s) ; rien pour les autres types.
+#[cfg(not(windows))]
+fn miniature(chemin: &Path, cote: i32) -> Option<Vec<u8>> {
+    use ellipse_moteur::fichiers::{self, Genre};
+    if let Some(icone) = crate::applications::icone(chemin) {
+        return std::fs::read(icone).ok();
+    }
+    let cote = cote as u32;
+    match Genre::de(chemin)? {
+        Genre::Photo => {
+            let images = ellipse_moteur::photo::Images::nouveau().ok()?;
+            let source = images.ouvrir(chemin).ok()?;
+            let p = images.pixels(&source, cote, true).ok()?;
+            // BGRA → RGBA.
+            let rgba: Vec<u8> = p.octets.chunks_exact(4).flat_map(|b| [b[2], b[1], b[0], b[3]]).collect();
+            png(p.largeur, p.hauteur, &rgba)
+        }
+        Genre::Pdf => {
+            let (racine, _) = crate::recherche::racine_et_base();
+            let pdfium = fichiers::charger_pdfium(&racine).ok()?;
+            fichiers::rendre_page(&pdfium, chemin, 1, cote).ok().map(|(jpeg, _)| jpeg)
+        }
+        Genre::Video => {
+            let sortie = ellipse_moteur::processus::commande(ellipse_moteur::processus::ffmpeg("ffmpeg"))
+                .args(["-v", "error", "-ss", "1", "-i"])
+                .arg(chemin)
+                .args(["-frames:v", "1", "-vf", &format!("scale={cote}:-2"), "-f", "image2pipe", "-c:v", "mjpeg", "-"])
+                .stdin(std::process::Stdio::null())
+                .output()
+                .ok()?;
+            (!sortie.stdout.is_empty()).then_some(sortie.stdout)
+        }
+        _ => None,
+    }
 }

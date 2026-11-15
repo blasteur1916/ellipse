@@ -1,27 +1,37 @@
 //! Le raccourci ouvre la barre : l'île prend le clavier pendant qu'elle est
 //! ouverte, puis le rend à la fenêtre qui l'avait. Alt+Espace, ou le premier raccourci libre.
+//! Windows : RegisterHotKey ; Linux (X11) et macOS : le plugin de raccourcis de Tauri.
 
+#[cfg(windows)]
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+#[cfg(windows)]
+use std::sync::atomic::AtomicIsize;
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(windows)]
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager};
+#[cfg(windows)]
 use windows::Win32::Foundation::HWND;
+#[cfg(windows)]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, RegisterHotKey, VK_SPACE,
 };
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetMessageW, IsWindow, MSG, PM_NOREMOVE, PeekMessageW, SetForegroundWindow, WM_HOTKEY,
 };
 
 use crate::{ile, recherche};
 
-pub const EVT_OUVRIR: &str = "furet://ouvrir";
-pub const EVT_FERMER: &str = "furet://fermer";
+pub const EVT_OUVRIR: &str = "ellipse://ouvrir";
+pub const EVT_FERMER: &str = "ellipse://fermer";
 /// Le temps laissé à Windows pour donner le clavier à l'île.
+#[cfg(windows)]
 const VERIFICATION_CLAVIER: Duration = Duration::from_millis(400);
 
 /// Dans l'ordre de préférence ; le premier qu'aucun autre programme ne tient est gardé.
+#[cfg(windows)]
 const RACCOURCIS: [(&str, u32); 3] = [
     ("Alt+Espace", MOD_ALT.0),
     ("Ctrl+Alt+Espace", MOD_CONTROL.0 | MOD_ALT.0),
@@ -35,9 +45,9 @@ static TENU: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 /// Le raccourci qui ouvre la barre, pour le montrer.
 #[tauri::command]
 pub fn raccourci_actuel() -> String {
-    let t = furet_moteur::langue::t;
+    let t = ellipse_moteur::langue::t;
     match TENU.get() {
-        Some(r) if furet_moteur::langue::francais() => (*r).into(),
+        Some(r) if ellipse_moteur::langue::francais() => (*r).into(),
         // « Alt+Espace » → « Alt+Space », « Ctrl+Maj+Espace » → « Ctrl+Shift+Space ».
         Some(r) => r.replace("Espace", "Space").replace("Maj", "Shift"),
         None => t("aucun (tous pris par d'autres programmes)", "none (all taken by other programs)").into(),
@@ -52,12 +62,12 @@ pub fn ouvrir_au_lancement(app: &AppHandle) {
 /// Ce que reçoit l'interface à l'ouverture. Miroir de `Ouverture` dans `src/ipc/ile.ts`.
 #[derive(Clone, serde::Serialize)]
 struct Ouverture {
-    /// Texte de départ (mode de test : `furet.exe --ouvrir "texte"`).
+    /// Texte de départ (mode de test : `ellipse.exe --ouvrir "texte"`).
     texte: Option<String>,
-    /// Mode de test (`FURET_TEST=1`) : la barre ne se ferme pas quand elle perd le clavier, pour
+    /// Mode de test (`ELLIPSE_TEST=1`) : la barre ne se ferme pas quand elle perd le clavier, pour
     /// pouvoir la regarder sans taper dans les autres fenêtres.
     test: bool,
-    /// Ouvrir directement les réglages (mode de test : `furet.exe --reglages`).
+    /// Ouvrir directement les réglages (mode de test : `ellipse.exe --reglages`).
     reglages: bool,
     /// Ouvrir l'aperçu de ce résultat dès qu'il est là (mode de test : `--ouvrir "texte" --apercu 2`).
     apercu: Option<usize>,
@@ -66,7 +76,7 @@ struct Ouverture {
 }
 
 fn mode_test() -> bool {
-    std::env::var_os("FURET_TEST").is_some()
+    std::env::var_os("ELLIPSE_TEST").is_some()
 }
 
 /// Un deuxième lancement avec `--ouvrir ["texte"]` ou `--fermer`, en mode de test seulement.
@@ -89,12 +99,46 @@ pub fn ligne_de_commande(app: &AppHandle, args: &[String]) {
     }
 }
 /// La fenêtre qui avait le clavier avant l'île.
+#[cfg(windows)]
 static PRECEDENTE: AtomicIsize = AtomicIsize::new(0);
 
+/// Le même ordre de préférence, pour le plugin (Linux, macOS : Alt est la touche Option).
+#[cfg(not(windows))]
+const RACCOURCIS: [(&str, &str); 3] =
+    [("Alt+Espace", "Alt+Space"), ("Ctrl+Alt+Espace", "Control+Alt+Space"), ("Ctrl+Maj+Espace", "Control+Shift+Space")];
+
+/// Tient le premier raccourci libre ; chaque appui ouvre ou ferme la barre.
+#[cfg(not(windows))]
+pub fn demarrer(app: &AppHandle) {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+    let gestion = app.global_shortcut();
+    let tenu = RACCOURCIS.iter().find(|(_, touches)| {
+        gestion
+            .on_shortcut(*touches, |app, _, evenement| {
+                if evenement.state == ShortcutState::Pressed {
+                    if OUVERT.load(Ordering::Relaxed) {
+                        fermer(app, true);
+                    } else {
+                        ouvrir(app, None, false);
+                    }
+                }
+            })
+            .is_ok()
+    });
+    match tenu {
+        Some((nom, _)) => {
+            log::info!("raccourci : {nom}");
+            let _ = TENU.set(nom);
+        }
+        None => log::error!("aucun raccourci libre : un autre programme les tient tous"),
+    }
+}
+
 /// Lance le fil qui tient le raccourci. Les appuis arrivent dans sa file de messages.
+#[cfg(windows)]
 pub fn demarrer(app: &AppHandle) {
     let app = app.clone();
-    let lance = std::thread::Builder::new().name("furet-raccourci".into()).spawn(move || {
+    let lance = std::thread::Builder::new().name("ellipse-raccourci".into()).spawn(move || {
         // SAFETY : raccourci de fil (sans fenêtre) : WM_HOTKEY arrive dans la file de ce fil, lue ci-dessous.
         unsafe {
             let mut msg = MSG::default();
@@ -142,6 +186,7 @@ fn ouvrir_avec(app: &AppHandle, texte: Option<String>, reglages: bool, apercu: O
     let test = mode_test();
     ile::remettre_au_dessus();
     // SAFETY : lecture du premier plan, et demande pour notre propre fenêtre.
+    #[cfg(windows)]
     unsafe {
         PRECEDENTE.store(GetForegroundWindow().0 as isize, Ordering::Relaxed);
         if let Some(h) = ile::hwnd() {
@@ -149,14 +194,24 @@ fn ouvrir_avec(app: &AppHandle, texte: Option<String>, reglages: bool, apercu: O
         }
     }
     if let Some(fenetre) = app.get_webview_window(ile::LABEL) {
+        // Hors de Windows, la fenêtre cachée doit d'abord être montrée pour prendre le clavier.
+        #[cfg(not(windows))]
+        let _ = fenetre.show();
         let _ = fenetre.set_focus();
     }
     let accueil = !crate::installation::essentiel_pret();
     let _ = app.emit(EVT_OUVRIR, Ouverture { texte, test, reglages, apercu, accueil });
     recherche::rafraichir_si_change();
-    if test {
+    if test || cfg!(not(windows)) {
         return;
     }
+    #[cfg(windows)]
+    verifier_clavier(app);
+}
+
+/// Windows peut refuser le clavier à l'île : elle se referme alors.
+#[cfg(windows)]
+fn verifier_clavier(app: &AppHandle) {
     // Windows peut refuser le clavier (un autre programme tient le premier plan) : une barre où l'on ne
     // peut pas taper ne ferait que gêner, elle se referme.
     let app = app.clone();
@@ -176,7 +231,12 @@ pub fn fermer(app: &AppHandle, rendre: bool) {
     if !OUVERT.swap(false, Ordering::Relaxed) {
         return;
     }
+    // Ailleurs que sous Windows, cacher l'île rend le clavier à la fenêtre d'avant.
+    #[cfg(not(windows))]
+    let _ = rendre;
+    #[cfg(windows)]
     let precedente = PRECEDENTE.swap(0, Ordering::Relaxed);
+    #[cfg(windows)]
     if rendre && precedente != 0 {
         let h = HWND(precedente as *mut c_void);
         // SAFETY : une poignée périmée est vérifiée d'abord ; l'appel échoue seulement dans ce cas.

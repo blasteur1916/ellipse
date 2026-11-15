@@ -1,21 +1,21 @@
-//! Furet, prototype de mesure : indexe un dossier avec EmbeddingGemma 2 et répond à des recherches.
+//! Ellipse, prototype de mesure : indexe un dossier avec EmbeddingGemma 2 et répond à des recherches.
 //! N'affiche jamais le contenu des fichiers : seulement le chemin, le score et la position.
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use furet_moteur::fichiers::Genre;
-use furet_moteur::mesures::{mo, secondes, taille_base};
-use furet_moteur::serveur::{self, Serveur};
-use furet_moteur::{base, filtres, indexation, pertinence};
+use ellipse_moteur::fichiers::Genre;
+use ellipse_moteur::mesures::{mo, secondes, taille_base};
+use ellipse_moteur::serveur::{self, Serveur};
+use ellipse_moteur::{base, filtres, indexation, pertinence};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 #[derive(Parser)]
-#[command(name = "furet-proto", about = "Prototype de mesure de Furet (recherche par le contenu)")]
+#[command(name = "ellipse-proto", about = "Prototype de mesure d'Ellipse (recherche par le contenu)")]
 struct Cli {
     /// Dossier du projet (outils, modeles)
-    #[arg(long, global = true, env = "FURET_RACINE", default_value = r"D:\furet")]
+    #[arg(long, global = true, env = "ELLIPSE_RACINE", default_value = r"D:\furet")]
     racine: PathBuf,
     /// Fichier de l'index (par défaut : <racine>\donnees\index.sqlite)
     #[arg(long, global = true)]
@@ -76,12 +76,12 @@ enum Commande {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    furet_moteur::processus::lier_au_programme();
+    ellipse_moteur::processus::lier_au_programme();
     let chemin_base = cli.base.clone().unwrap_or_else(|| cli.racine.join("donnees").join("index.sqlite"));
     match cli.commande {
         Commande::Index { dossier, cpu, tout, sans_ocr, sans_transcription, sans_visages, bibliotheques, fils, jetons_image } => {
             // Le prototype ne fait qu'indexer : tout le programme passe en priorité basse.
-            furet_moteur::processus::programme_en_priorite_basse();
+            ellipse_moteur::processus::programme_en_priorite_basse();
             indexation::indexer(
                 &cli.racine,
                 &chemin_base,
@@ -167,7 +167,7 @@ fn chercher(
                 println!("    {score:.2}  {chemin}");
             }
         }
-        let personnes = furet_moteur::visages::chercher_personne(&base, q, n)?;
+        let personnes = ellipse_moteur::visages::chercher_personne(&base, q, n)?;
         if !personnes.is_empty() {
             println!("  Visage reconnu :");
             for p in personnes {

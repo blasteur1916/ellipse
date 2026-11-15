@@ -316,11 +316,11 @@ mod tests {
     }
 
     /// Sur un dossier de photos : visages trouvés, prénoms, et ressemblance de chaque paire.
-    /// FURET_VISAGES=dossier cargo test --release -p furet-moteur sur_des_photos -- --ignored --nocapture
+    /// ELLIPSE_VISAGES=dossier cargo test --release -p ellipse-moteur sur_des_photos -- --ignored --nocapture
     #[test]
     #[ignore]
     fn sur_des_photos() {
-        let dossier = std::env::var("FURET_VISAGES").expect("FURET_VISAGES");
+        let dossier = std::env::var("ELLIPSE_VISAGES").expect("ELLIPSE_VISAGES");
         let r = Reconnaissance::charger(Path::new(r"D:\furet")).unwrap();
         let images = crate::photo::Images::nouveau().unwrap();
         let mut tous: Vec<(String, Vec<f32>)> = Vec::new();

@@ -18,7 +18,7 @@ export const indexerMaintenant = () => invoke<void>("indexer_maintenant");
 export const basculerPause = () => invoke<EtatIndexation>("basculer_pause");
 
 export function onIndexation(rappel: (e: EtatIndexation) => void): Promise<UnlistenFn> {
-  return listen<EtatIndexation>("furet://indexation", (e) => rappel(e.payload));
+  return listen<EtatIndexation>("ellipse://indexation", (e) => rappel(e.payload));
 }
 
 /** L'état de l'indexation, tenu à jour. */

@@ -1,26 +1,27 @@
 [package]
-name = "furet"
+name = "ellipse"
 version = "0.9.1"
 description = "Retrouve n'importe quel fichier par ce qu'il contient ou par son nom, entièrement sur le PC."
-authors = ["Furet contributors"]
+authors = ["Ellipse contributors"]
 edition.workspace = true
 license.workspace = true
 
 [lib]
 # Le suffixe `_lib` distingue la librairie du programme (rust-lang/cargo#8519).
-name = "furet_lib"
+name = "ellipse_lib"
 crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2.12", features = ["tray-icon"] }
+# macos-private-api : la fenêtre transparente de l'île sur Mac.
+tauri = { version = "2.12", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-log = "2.10"
 tauri-plugin-single-instance = "2.5"
 tauri-plugin-opener = "2.7"
 anyhow.workspace = true
-furet-moteur.workspace = true
+ellipse-moteur.workspace = true
 # Les miniatures de Windows, servies en PNG à l'interface.
 png = "0.18"
 log.workspace = true
@@ -32,6 +33,10 @@ tauri-plugin-clipboard-manager = "2.5.0"
 tauri-plugin-autostart = "2.7.0"
 tauri-plugin-updater = "2.14.1"
 sys-locale = "0.3.2"
+
+# Linux et macOS : le raccourci global (sous Windows, RegisterHotKey).
+[target.'cfg(not(windows))'.dependencies]
+tauri-plugin-global-shortcut = "2"
 
 # Même version que celle de Tauri, pour que les types HWND correspondent.
 [target.'cfg(windows)'.dependencies]

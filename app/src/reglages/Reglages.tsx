@@ -109,7 +109,7 @@ export function Reglages({
           <div className="regl-etat">
             <span className="regl-pastille regl-pastille--a_jour" />
             <span className="regl-etat-texte">
-              {tr("Furet {} est prêt à être installé.", "Furet {} is ready to install.").replace("{}", miseAJour)}
+              {tr("Ellipse {} est prête à être installée.", "Ellipse {} is ready to install.").replace("{}", miseAJour)}
             </span>
             <button className="regl-lien" onClick={() => installerMiseAJour().catch(ignorer)}>
               {tr("Redémarrer pour mettre à jour", "Restart to update")}
@@ -191,7 +191,7 @@ export function Reglages({
             {tr("Pause pendant les jeux et le plein écran", "Pause during games and full screen")}
           </Interrupteur>
           <Interrupteur actif={reglages.demarrage} onChange={(demarrage) => changer({ ...reglages, demarrage })}>
-            {tr("Lancer Furet avec Windows", "Start Furet with Windows")}
+            {tr("Lancer Ellipse avec Windows", "Start Ellipse with Windows")}
           </Interrupteur>
           <div className="regl-option">
             <span>{tr("Langue", "Language")}</span>
@@ -227,7 +227,7 @@ export function Reglages({
         <div className="regl-sous-titre">{tr("À propos", "About")}</div>
         <div className="regl-apropos">
           <p>
-            <strong>Furet {version}</strong> ·{" "}
+            <strong>Ellipse {version}</strong> ·{" "}
             {tr(
               "logiciel libre (licence GPL-3.0). Tout se passe sur ce PC : rien de ce que tu cherches ni de tes fichiers n'est envoyé sur internet.",
               "free software (GPL-3.0 license). Everything happens on this PC: nothing you search for and none of your files is sent to the internet.",

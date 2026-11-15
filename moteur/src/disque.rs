@@ -1,7 +1,8 @@
-//! Les noms de tous les fichiers des disques, comme Everything, sans droits administrateur.
+//! Les noms de tous les fichiers des disques, sans droits administrateur.
 //!
 //! - Parcours : plusieurs fils lisent les dossiers avec `FindFirstFileExW` (infos de base, gros lots),
 //!   la lecture de dossier la plus rapide qu'offre Windows sans lire la MFT (qui demande d'être administrateur).
+//!   Sous Linux et macOS : le dossier personnel et les disques montés, lus avec `read_dir`.
 //! - En mémoire, compact : chaque élément connaît son parent ; noms et clés (sans accents ni majuscules)
 //!   sont bout à bout dans deux grands textes. Le chemin complet n'est refait que pour les résultats.
 //! - Recherche : on trouve le mot cherché dans le grand texte des clés (memchr), puis on note seulement
@@ -13,14 +14,13 @@ use anyhow::{Result, bail};
 use std::collections::BinaryHeap;
 use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
 
 /// Pas de parent : une racine de disque.
 const RACINE: u32 = u32::MAX;
-const MAGIQUE: &[u8; 8] = b"FURETNM1";
+const MAGIQUE: &[u8; 8] = b"ELLNOMS1";
 
 /// Dossiers où personne ne cherche un fichier, mais qui en contiennent des millions : système, caches,
 /// dépendances de développement, fichiers de jeux. Le dossier lui-même reste trouvable par son nom ; on n'y
@@ -29,8 +29,9 @@ const NE_PAS_PARCOURIR: [&str; 12] = [
     "$recycle.bin", "system volume information", "winsxs", "$windows.~bt", "$windows.~ws", "config.msi", "appdata",
     "node_modules", "__pycache__", "steamapps", "$sysreset", "$getcurrent",
 ];
-/// Les mêmes, mais seulement à la racine d'un disque (un projet peut avoir un dossier « windows »).
-const NE_PAS_PARCOURIR_A_LA_RACINE: [&str; 4] = ["windows", "programdata", "recovery", "perflogs"];
+/// Les mêmes, mais seulement à la racine d'un disque (un projet peut avoir un dossier « windows »). Sur Mac,
+/// la racine est le dossier personnel : sa « Library » est faite de caches et de réglages de programmes.
+const NE_PAS_PARCOURIR_A_LA_RACINE: [&str; 5] = ["windows", "programdata", "recovery", "perflogs", "library"];
 
 /// Faut-il entrer dans ce dossier ? Non pour la liste ci-dessus et les dossiers cachés (« .git », « .cache »…).
 fn a_parcourir(nom: &str, a_la_racine: bool) -> bool {
@@ -119,8 +120,9 @@ impl ArbreNoms {
             i = e.parent;
         }
         morceaux.reverse();
-        // Les racines s'appellent « C: » : on remet la barre qui suit.
-        let mut chemin = PathBuf::from(format!("{}\\", morceaux[0]));
+        // Windows : les racines s'appellent « C: », on remet la barre qui suit. Ailleurs, la racine est un
+        // chemin complet (« /home/moi », « /media/moi/Disque »).
+        let mut chemin = if cfg!(windows) { PathBuf::from(format!("{}\\", morceaux[0])) } else { PathBuf::from(morceaux[0]) };
         for m in &morceaux[1..] {
             chemin.push(m);
         }
@@ -292,11 +294,11 @@ impl ArbreNoms {
     }
 }
 
-/// Un changement sur un disque, signalé par Windows.
+/// Un changement sur un disque, signalé par le système.
 pub enum Changement {
     Ajoute { chemin: PathBuf, dossier: bool },
     Retire(PathBuf),
-    /// Trop de changements d'un coup : Windows n'a pas pu tout dire. Il faut refaire la liste.
+    /// Trop de changements d'un coup : le système n'a pas pu tout dire. Il faut refaire la liste.
     Debordement,
 }
 
@@ -417,7 +419,9 @@ fn a_suivre(relatif: &Path) -> bool {
 
 /// Suit un disque en direct (sur le fil qui appelle, sans fin) : chaque fichier ou dossier créé, renommé
 /// ou supprimé est signalé à `rappel`. Sans droits administrateur.
+#[cfg(windows)]
 pub fn surveiller(racine: &Path, rappel: impl Fn(Changement)) -> Result<()> {
+    use std::os::windows::ffi::OsStringExt;
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::Storage::FileSystem::{
         CreateFileW, FILE_ACTION_ADDED, FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
@@ -484,6 +488,50 @@ pub fn surveiller(racine: &Path, rappel: impl Fn(Changement)) -> Result<()> {
     }
 }
 
+/// Linux et macOS : par `notify` (inotify, FSEvents).
+#[cfg(unix)]
+pub fn surveiller(racine: &Path, rappel: impl Fn(Changement)) -> Result<()> {
+    use notify::event::ModifyKind;
+    use notify::{EventKind, RecursiveMode, Watcher};
+    let (envoi, reception) = mpsc::channel();
+    let mut veilleur = notify::recommended_watcher(envoi)?;
+    veilleur.watch(racine, RecursiveMode::Recursive)?;
+    for evenement in reception {
+        let Ok(e) = evenement else {
+            rappel(Changement::Debordement);
+            continue;
+        };
+        if e.need_rescan() {
+            rappel(Changement::Debordement);
+            continue;
+        }
+        for chemin in e.paths {
+            let Ok(relatif) = chemin.strip_prefix(racine) else { continue };
+            if !a_suivre(relatif) {
+                continue;
+            }
+            match e.kind {
+                EventKind::Create(_) => {
+                    let dossier = chemin.is_dir();
+                    rappel(Changement::Ajoute { chemin, dossier });
+                }
+                EventKind::Remove(_) => rappel(Changement::Retire(chemin)),
+                // Un renommage : l'ancien nom n'existe plus, le nouveau si.
+                EventKind::Modify(ModifyKind::Name(_)) => {
+                    if chemin.exists() {
+                        let dossier = chemin.is_dir();
+                        rappel(Changement::Ajoute { chemin, dossier });
+                    } else {
+                        rappel(Changement::Retire(chemin));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    bail!("le suivi du disque s'est arrêté")
+}
+
 /// Ordre total sur les scores (f32), pour le tas.
 #[derive(Clone, Copy, PartialEq)]
 struct Classement(f32);
@@ -500,6 +548,7 @@ impl Ord for Classement {
 }
 
 /// Les disques fixes (C:\, D:\…) : pas les clés USB, le réseau ni les lecteurs optiques.
+#[cfg(windows)]
 pub fn disques_fixes() -> Vec<PathBuf> {
     use windows::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
     const DRIVE_FIXED: u32 = 3;
@@ -513,8 +562,47 @@ pub fn disques_fixes() -> Vec<PathBuf> {
         .collect()
 }
 
+/// Linux et macOS : le dossier personnel, puis les disques montés (Linux : `/media/<moi>`,
+/// `/run/media/<moi>`, `/mnt` ; macOS : `/Volumes`, sauf le disque du système, déjà là par le dossier personnel).
+/// Le reste du système (programmes, bibliothèques) n'est pas l'affaire d'une recherche de fichiers.
+#[cfg(unix)]
+pub fn disques_fixes() -> Vec<PathBuf> {
+    let mut racines: Vec<PathBuf> = std::env::var_os("HOME").map(PathBuf::from).into_iter().collect();
+    let moi = std::env::var("USER").unwrap_or_default();
+    let montages: Vec<PathBuf> = if cfg!(target_os = "macos") {
+        vec!["/Volumes".into()]
+    } else {
+        vec![format!("/media/{moi}").into(), format!("/run/media/{moi}").into(), "/mnt".into()]
+    };
+    for m in montages {
+        let Ok(contenu) = std::fs::read_dir(&m) else { continue };
+        for e in contenu.flatten() {
+            // Un lien (« Macintosh HD » → /) n'est pas un disque de plus.
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                racines.push(e.path());
+            }
+        }
+    }
+    racines
+}
+
 /// Le contenu d'un dossier : (nom, est un dossier, est un lien à ne pas suivre).
+#[cfg(unix)]
 fn lire_dossier(dossier: &Path) -> Vec<(OsString, bool, bool)> {
+    let Ok(contenu) = std::fs::read_dir(dossier) else { return Vec::new() };
+    contenu
+        .flatten()
+        .filter_map(|e| {
+            let sorte = e.file_type().ok()?;
+            Some((e.file_name(), sorte.is_dir(), sorte.is_symlink()))
+        })
+        .collect()
+}
+
+/// Le contenu d'un dossier : (nom, est un dossier, est un lien à ne pas suivre).
+#[cfg(windows)]
+fn lire_dossier(dossier: &Path) -> Vec<(OsString, bool, bool)> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use windows::Win32::Storage::FileSystem::{
         FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FIND_FIRST_EX_LARGE_FETCH, FindClose, FindExInfoBasic,
         FindExSearchNameMatch, FindFirstFileExW, FindNextFileW, WIN32_FIND_DATAW,
@@ -565,7 +653,8 @@ pub fn parcourir(racines: &[PathBuf]) -> ArbreNoms {
         let (verrou, cond) = &*file;
         let mut f = verrou.lock().unwrap();
         for r in racines {
-            let nom = r.to_string_lossy().trim_end_matches('\\').to_string();
+            // Windows : « C: » ; ailleurs le chemin complet de la racine.
+            let nom = if cfg!(windows) { r.to_string_lossy().trim_end_matches('\\').to_string() } else { r.to_string_lossy().into_owned() };
             let i = arbre.ajouter(RACINE, &nom, true);
             f.0.push((i, r.clone()));
             f.1 += 1;
@@ -639,7 +728,7 @@ mod tests {
     use std::time::Instant;
 
     /// Tous les disques fixes : combien de noms, en combien de temps, quelle mémoire, quelle vitesse de recherche.
-    /// cargo test --release -p furet-moteur disques -- --ignored --nocapture
+    /// cargo test --release -p ellipse-moteur disques -- --ignored --nocapture
     #[test]
     #[ignore]
     fn disques() {
@@ -653,7 +742,7 @@ mod tests {
             t.elapsed().as_secs_f64(),
             arbre.memoire() >> 20
         );
-        let fichier = std::env::temp_dir().join("furet-noms-essai.bin");
+        let fichier = std::env::temp_dir().join("ellipse-noms-essai.bin");
         let t = Instant::now();
         arbre.sauver(&fichier).unwrap();
         let taille = std::fs::metadata(&fichier).unwrap().len() >> 20;

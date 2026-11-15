@@ -10,7 +10,7 @@ import "./accueil.css";
 const ignorer = () => {};
 
 /**
- * Le premier lancement, dans l'île : ce que fait Furet, les dossiers à explorer, les options, puis le
+ * Le premier lancement, dans l'île : ce que fait Ellipse, les dossiers à explorer, les options, puis le
  * téléchargement de ses outils et de son modèle (une fois pour toutes). Il continue si l'île se ferme.
  */
 export function Accueil({ onFini, onHauteur }: { onFini(): void; onHauteur(h: number): void }) {
@@ -62,7 +62,7 @@ export function Accueil({ onFini, onHauteur }: { onFini(): void; onHauteur(h: nu
   return (
     <div className="regl accueil" ref={racine}>
       <div className="accueil-tete">
-        <span className="accueil-titre">{tr("Bienvenue dans Furet", "Welcome to Furet")}</span>
+        <span className="accueil-titre">{tr("Bienvenue dans Ellipse", "Welcome to Ellipse")}</span>
         <span className="accueil-texte">
           {tr(
             "Retrouve n'importe quel fichier par son nom ou par ce qu'il contient : photos, PDF, documents, vidéos, sons… Tout reste sur ce PC : rien n'est envoyé sur internet.",
@@ -110,7 +110,7 @@ export function Accueil({ onFini, onHauteur }: { onFini(): void; onHauteur(h: nu
               )}
             </Interrupteur>
             <Interrupteur actif={reglages.demarrage} onChange={(demarrage) => changer({ ...reglages, demarrage })}>
-              {tr("Lancer Furet avec Windows", "Start Furet with Windows")}
+              {tr("Lancer Ellipse avec Windows", "Start Ellipse with Windows")}
             </Interrupteur>
           </div>
         </>
@@ -137,8 +137,8 @@ export function Accueil({ onFini, onHauteur }: { onFini(): void; onHauteur(h: nu
             <div className="accueil-pret">
               {lance ? tr("C'est prêt !", "All set!") : tr("Tout est installé.", "Everything is installed.")}{" "}
               {tr(
-                "Furet lit tes fichiers en arrière-plan ; tu peux déjà chercher.",
-                "Furet reads your files in the background; you can already search.",
+                "Ellipse lit tes fichiers en arrière-plan ; tu peux déjà chercher.",
+                "Ellipse reads your files in the background; you can already search.",
               )}
             </div>
             <button className="accueil-bouton" onClick={onFini}>
@@ -155,8 +155,8 @@ export function Accueil({ onFini, onHauteur }: { onFini(): void; onHauteur(h: nu
             </button>
             <div className="accueil-note">
               {tr(
-                "Une seule fois : le moteur de recherche et son modèle. Ensuite, ouvre Furet à tout moment avec",
-                "Just once: the search engine and its model. Then open Furet anytime with",
+                "Une seule fois : le moteur de recherche et son modèle. Ensuite, ouvre Ellipse à tout moment avec",
+                "Just once: the search engine and its model. Then open Ellipse anytime with",
               )}{" "}
               <strong>{raccourci}</strong>.
             </div>

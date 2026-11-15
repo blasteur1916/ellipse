@@ -208,11 +208,11 @@ mod tests {
 
     /// Qualité et vitesse de l'index rapide sur un vrai index : pour 200 morceaux pris comme requêtes,
     /// part des 10 vrais plus proches (recherche exhaustive) que le graphe retrouve.
-    /// FURET_BASE=chemin\index.sqlite cargo test --release -p furet-moteur rappel -- --ignored --nocapture
+    /// ELLIPSE_BASE=chemin\index.sqlite cargo test --release -p ellipse-moteur rappel -- --ignored --nocapture
     #[test]
     #[ignore]
     fn rappel_et_vitesse() {
-        let chemin = std::env::var("FURET_BASE").expect("FURET_BASE");
+        let chemin = std::env::var("ELLIPSE_BASE").expect("ELLIPSE_BASE");
         let base = crate::base::ouvrir(Path::new(&chemin)).unwrap();
         let t = Instant::now();
         let rapide = IndexRapide::construire(&base).unwrap();

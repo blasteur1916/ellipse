@@ -1,6 +1,6 @@
 //! Essai : temps du parcours d'un dossier et ce qu'il contient, par type (des nombres seulement : aucun
 //! nom de fichier), avec ce que la règle des bibliothèques de code met de côté.
-//! cargo run --release -p furet-moteur --example banc_parcours -- D:\
+//! cargo run --release -p ellipse-moteur --example banc_parcours -- D:\
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::time::Instant;
@@ -8,7 +8,7 @@ use std::time::Instant;
 fn main() {
     let dossier = std::env::args().nth(1).expect("dossier");
     let t = Instant::now();
-    let fichiers = furet_moteur::indexation::parcours_detaille(Path::new(&dossier));
+    let fichiers = ellipse_moteur::indexation::parcours_detaille(Path::new(&dossier));
     println!("{} fichiers lisibles en {:.1} s", fichiers.len(), t.elapsed().as_secs_f64());
     // Par type : (à lire, octets, en bibliothèque).
     let mut par_genre: BTreeMap<&str, (usize, u64, usize)> = BTreeMap::new();

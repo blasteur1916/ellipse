@@ -1,10 +1,10 @@
 //! Essai : débit du modèle sur la carte graphique selon la taille des lots et le nombre de lots en vol.
 //! Texte inventé (aucun fichier de l'utilisateur).
-//! cargo run --release -p furet-moteur --example banc_modele
+//! cargo run --release -p ellipse-moteur --example banc_modele
 use std::path::Path;
 use std::time::Instant;
 
-use furet_moteur::serveur::Serveur;
+use ellipse_moteur::serveur::Serveur;
 use serde_json::Value;
 
 fn passage(i: usize) -> Value {
@@ -23,7 +23,7 @@ fn passage(i: usize) -> Value {
 
 fn main() -> anyhow::Result<()> {
     let racine = Path::new(r"D:\furet");
-    let serveur = Serveur::demarrer(racine, false, None, &std::env::temp_dir().join("furet-banc-modele.log"))?;
+    let serveur = Serveur::demarrer(racine, false, None, &std::env::temp_dir().join("ellipse-banc-modele.log"))?;
     println!("modèle sur {} ({:.1} s)", serveur.appareil, serveur.demarrage.as_secs_f64());
     let total = 768;
     // Mise en route (la carte prépare ses programmes).

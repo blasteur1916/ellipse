@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 const conf = JSON.parse(readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
 const version = conf.version;
-const installateur = `Furet_${version}_x64-setup.exe`;
+const installateur = `Ellipse_${version}_x64-setup.exe`;
 const dossier = join(import.meta.dirname, "..", "..", "target", "release", "bundle", "nsis");
 const signature = readFileSync(join(dossier, `${installateur}.sig`), "utf8").trim();
 const depot = conf.plugins.updater.endpoints[0].replace(/\/releases\/latest\/download\/latest\.json$/, "");

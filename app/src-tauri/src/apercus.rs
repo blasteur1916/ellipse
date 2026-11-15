@@ -1,6 +1,6 @@
 //! L'aperçu d'un résultat (Espace) : la photo, la page du PDF, le passage de la vidéo ou du son, le texte
 //! autour de ce qui a été trouvé, ce que contient un dossier. Les fichiers sont servis à l'interface par
-//! `http://furet-fichier.localhost/<clé>` (seulement ceux que la recherche a proposés) : en entier ou par
+//! `http://ellipse-fichier.localhost/<clé>` (seulement ceux que la recherche a proposés) : en entier ou par
 //! plages pour les vidéos et les sons, `/<clé>/image` pour une photo réduite, `/<clé>/page/<n>` pour une page.
 
 use std::fs::File;
@@ -10,15 +10,15 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, OnceLock};
 use std::time::UNIX_EPOCH;
 
-use furet_moteur::fichiers::{self, Genre, Pdfium};
-use furet_moteur::filtres::{date_lisible, taille_lisible};
-use furet_moteur::photo::Images;
+use ellipse_moteur::fichiers::{self, Genre, Pdfium};
+use ellipse_moteur::filtres::{date_lisible, taille_lisible};
+use ellipse_moteur::photo::Images;
 use serde::Serialize;
 use tauri::http::{Request, Response, StatusCode, header};
 
 use crate::{miniatures, recherche};
 
-pub const SCHEMA: &str = "furet-fichier";
+pub const SCHEMA: &str = "ellipse-fichier";
 /// Une vidéo ou un son est envoyé par morceaux de cette taille (le lecteur demande la suite).
 const MORCEAU: u64 = 4 << 20;
 /// Au-delà, un fichier n'est pas envoyé d'un coup (une photo animée de 200 Mo…).
@@ -30,7 +30,7 @@ const TEXTE_MAX: usize = 60_000;
 const DOSSIER_MAX: usize = 80;
 
 fn adresse(cle: &str, suite: &str) -> String {
-    format!("http://{SCHEMA}.localhost/{cle}{suite}")
+    format!("{}{cle}{suite}", base_adresse(SCHEMA))
 }
 
 /// Miroir de `Contenu` dans `src/ipc/apercu.ts`.
@@ -83,7 +83,7 @@ fn sur_le_fil<R: Send + 'static>(f: impl FnOnce(&Outils) -> R + Send + 'static) 
     static FIL: OnceLock<Sender<Travail>> = OnceLock::new();
     let fil = FIL.get_or_init(|| {
         let (envoi, reception) = mpsc::channel::<Travail>();
-        let lance = std::thread::Builder::new().name("furet-apercus".into()).spawn(move || {
+        let lance = std::thread::Builder::new().name("ellipse-apercus".into()).spawn(move || {
             let (racine, _) = recherche::racine_et_base();
             let outils = Outils { images: Images::nouveau().ok(), pdfium: fichiers::charger_pdfium(&racine).ok() };
             for travail in reception {
@@ -108,7 +108,7 @@ fn infos(chemin: &Path) -> String {
     let modifie = m.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64);
     // Une photo : quand et où elle a été prise, si on le sait.
     let photo = (Genre::de(chemin) == Some(Genre::Photo)).then(|| recherche::prise_et_lieu(chemin)).flatten();
-    let modifie_le = furet_moteur::langue::t("modifié le", "modified");
+    let modifie_le = ellipse_moteur::langue::t("modifié le", "modified");
     let date = photo.or_else(|| modifie.map(|s| format!("{modifie_le} {}", date_lisible(s)))).unwrap_or_default();
     if m.is_dir() {
         return date;
@@ -119,7 +119,7 @@ fn infos(chemin: &Path) -> String {
 /// L'aperçu d'un fichier proposé ; `repere` : la page, la ligne ou le moment trouvé.
 #[tauri::command]
 pub async fn apercu(cle: String, repere: Option<f64>) -> Result<Apercu, String> {
-    let chemin = recherche::chemin_offert(&cle).ok_or(furet_moteur::langue::t("fichier inconnu : cherchez à nouveau", "unknown file: search again"))?;
+    let chemin = recherche::chemin_offert(&cle).ok_or(ellipse_moteur::langue::t("fichier inconnu : cherchez à nouveau", "unknown file: search again"))?;
     tauri::async_runtime::spawn_blocking(move || Apercu { infos: infos(&chemin), contenu: contenu(&cle, &chemin, repere) })
         .await
         .map_err(|e| e.to_string())
@@ -175,8 +175,8 @@ fn texte(chemin: &Path, repere: Option<f64>) -> Option<Contenu> {
             break;
         }
         let titre = match b.nature {
-            "diapo" => format!("{} {}", furet_moteur::langue::t("diapo", "slide"), b.numero as u32),
-            "feuille" => format!("{} {}", furet_moteur::langue::t("feuille", "sheet"), b.numero as u32),
+            "diapo" => format!("{} {}", ellipse_moteur::langue::t("diapo", "slide"), b.numero as u32),
+            "feuille" => format!("{} {}", ellipse_moteur::langue::t("feuille", "sheet"), b.numero as u32),
             _ => String::new(),
         };
         vus.push(BlocVu { titre, numero: b.numero, texte: b.texte });
@@ -201,7 +201,7 @@ fn dossier(chemin: &Path) -> Contenu {
     Contenu::Dossier { entrees, total }
 }
 
-/// Répond à une demande `furet-fichier`.
+/// Répond à une demande `ellipse-fichier`.
 pub fn servir(demande: Request<Vec<u8>>, repondeur: tauri::UriSchemeResponder) {
     std::thread::spawn(move || {
         let chemin = demande.uri().path().trim_start_matches('/').to_owned();
@@ -293,4 +293,10 @@ fn fichier(chemin: &PathBuf, demande: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         Ok(r.header(header::CONTENT_LENGTH, octets.len()).body(octets).unwrap_or_default())
     })();
     lu.unwrap_or_else(|_| vide(StatusCode::NOT_FOUND))
+}
+
+/// Le début de l'adresse d'un schéma de l'appli : la WebView de Windows le sert par `http://<schéma>.localhost/`,
+/// celles de Linux et de macOS par `<schéma>://localhost/`.
+pub fn base_adresse(schema: &str) -> String {
+    if cfg!(windows) { format!("http://{schema}.localhost/") } else { format!("{schema}://localhost/") }
 }

@@ -1,4 +1,4 @@
-//! Le moteur de Furet : indexe les fichiers par leur contenu (EmbeddingGemma 2, OCR, transcription)
+//! Le moteur d'Ellipse : indexe les fichiers par leur contenu (EmbeddingGemma 2, OCR, transcription)
 //! et par leur nom, et y cherche. Utilisé par l'appli et par le prototype en ligne de commande.
 //! N'écrit jamais le contenu des fichiers dans les journaux : seulement des chemins, des scores, des temps.
 

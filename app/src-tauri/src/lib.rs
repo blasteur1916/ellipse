@@ -1,12 +1,14 @@
-//! Furet : une barre de recherche qui descend du haut de l'écran (Alt+Espace) et retrouve un fichier par
+//! Ellipse : une barre de recherche qui descend du haut de l'écran (Alt+Espace) et retrouve un fichier par
 //! son nom ou par ce qu'il contient, entièrement sur le PC.
 
 mod actions;
 mod apercus;
+mod applications;
 mod historique;
 mod ile;
 mod indexeur;
 mod installation;
+mod migration;
 mod miniatures;
 mod mises_a_jour;
 mod plateforme;
@@ -18,13 +20,19 @@ mod tray;
 use tauri::{Manager, RunEvent, WindowEvent};
 
 pub fn run() {
+    // Avant tout : les dossiers de Furet (l'ancien nom) deviennent ceux d'Ellipse.
+    migration::depuis_furet();
     // Si l'appli s'arrête, même brutalement, Windows arrête aussi ses programmes enfants (llama-server…).
-    furet_moteur::processus::lier_au_programme();
-    let app = tauri::Builder::default()
+    ellipse_moteur::processus::lier_au_programme();
+    let constructeur = tauri::Builder::default()
         // En premier : un deuxième lancement s'arrête avant de faire quoi que ce soit.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             raccourci::ligne_de_commande(app, &args);
-        }))
+        }));
+    // Linux et macOS : le raccourci global passe par ce plugin (Windows : RegisterHotKey).
+    #[cfg(not(windows))]
+    let constructeur = constructeur.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+    let app = constructeur
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
@@ -34,7 +42,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        // Lancé avec Windows : « --demarrage » le dit (rien ne s'ouvre, Furet attend le raccourci).
+        // Lancé avec Windows : « --demarrage » le dit (rien ne s'ouvre, Ellipse attend le raccourci).
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--demarrage"])))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol(miniatures::SCHEMA, |_ctx, demande, repondeur| {
@@ -46,12 +54,16 @@ pub fn run() {
             apercus::servir(demande, repondeur);
         })
         .setup(|app| {
+            // Mac : une barre de recherche, pas une appli du Dock.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             reglages::charger(app.handle());
             historique::charger(app.handle());
             tray::creer(app)?;
             ile::installer(app.handle())?;
             let racine = installation::choisir_racine(app.handle());
             recherche::demarrer(racine);
+            applications::demarrer();
             raccourci::demarrer(app.handle());
             indexeur::demarrer(app.handle());
             reglages::appliquer_demarrage();
@@ -103,7 +115,7 @@ pub fn run() {
             indexeur::basculer_pause,
         ])
         .build(tauri::generate_context!())
-        .expect("Furet n'a pas pu démarrer");
+        .expect("Ellipse n'a pas pu démarrer");
     app.run(|_app, evenement| {
         if let RunEvent::Exit = evenement {
             recherche::arreter();

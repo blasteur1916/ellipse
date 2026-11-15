@@ -1,18 +1,18 @@
-//! Le premier lancement : où Furet range ses données, et le téléchargement de ses outils et modèles (voir
-//! `furet_moteur::installation`). Tant que l'essentiel manque, l'île ouvre l'accueil au lieu de la barre.
+//! Le premier lancement : où Ellipse range ses données, et le téléchargement de ses outils et modèles (voir
+//! `ellipse_moteur::installation`). Tant que l'essentiel manque, l'île ouvre l'accueil au lieu de la barre.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use furet_moteur::installation::{self, Groupe, Paquet};
+use ellipse_moteur::installation::{self, Groupe, Paquet};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::reglages;
 
-pub const EVT_INSTALLATION: &str = "furet://installation";
+pub const EVT_INSTALLATION: &str = "ellipse://installation";
 /// L'interface reçoit l'avancement au plus 5 fois par seconde.
 const PUBLICATION_MIN: Duration = Duration::from_millis(200);
 /// Après une coupure, on réessaie seul à ce rythme (le téléchargement reprend où il en était).
@@ -36,21 +36,21 @@ pub enum Etat {
     Erreur { message: String },
 }
 
-/// Le dossier de Furet : `FURET_RACINE`, sinon celui des réglages (développement), sinon les données locales
-/// de l'utilisateur (`%LOCALAPPDATA%\app.furet`). Les données de l'index sont dans `donnees/`.
+/// Le dossier d'Ellipse : `ELLIPSE_RACINE`, sinon celui des réglages (développement), sinon les données locales
+/// de l'utilisateur (`%LOCALAPPDATA%\app.ellipse`). Les données de l'index sont dans `donnees/`.
 pub fn choisir_racine(app: &AppHandle) -> PathBuf {
-    let racine = std::env::var_os("FURET_RACINE")
+    let racine = std::env::var_os("ELLIPSE_RACINE")
         .map(PathBuf::from)
         .or_else(|| reglages::lire().racine)
         .or_else(|| app.path().app_local_data_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("furet"));
+        .unwrap_or_else(|| PathBuf::from("ellipse"));
     let _ = APP.set(app.clone());
     let _ = RACINE.set(racine.clone());
     racine
 }
 
 fn racine() -> &'static Path {
-    RACINE.get().map_or(Path::new("furet"), PathBuf::as_path)
+    RACINE.get().map_or(Path::new("ellipse"), PathBuf::as_path)
 }
 
 fn octets(groupe: Groupe) -> u64 {
@@ -120,7 +120,7 @@ pub fn installer() {
     if EN_COURS.swap(true, Ordering::Relaxed) {
         return;
     }
-    let lance = std::thread::Builder::new().name("furet-installation".into()).spawn(|| {
+    let lance = std::thread::Builder::new().name("ellipse-installation".into()).spawn(|| {
         let arret = Arc::new(AtomicBool::new(false));
         let mut essais = 0;
         let resultat = loop {
@@ -136,7 +136,7 @@ pub fn installer() {
                 Err(e) if essais + 1 < ESSAIS_MAX => {
                     essais += 1;
                     log::warn!("installation interrompue ({essais}/{ESSAIS_MAX}) : {e:#}");
-                    let suite = furet_moteur::langue::t("nouvel essai dans quelques secondes", "trying again in a few seconds");
+                    let suite = ellipse_moteur::langue::t("nouvel essai dans quelques secondes", "trying again in a few seconds");
                     publier(Etat::Erreur { message: format!("{e:#} — {suite}") });
                     std::thread::sleep(REESSAI);
                 }

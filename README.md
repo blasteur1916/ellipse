@@ -2,29 +2,29 @@
 
 <img src="docs/images/logo.png" width="112" alt="">
 
-# Furet
+# Ellipse
 
 **English** · [Français](README.fr.md)
 
 **Find any file by what's inside it.**<br>
 One search bar, <kbd>Alt</kbd> + <kbd>Space</kbd>, and everything stays on your PC.
 
-[![Version](https://img.shields.io/github/v/release/blasteur1916/furet?style=flat-square&label=public%20beta&color=6a3df0)](https://github.com/blasteur1916/furet/releases/latest)
-[![Windows 10 and 11](https://img.shields.io/badge/Windows-10%20%7C%2011-3d8bff?style=flat-square&logo=windows&logoColor=white)](https://github.com/blasteur1916/furet/releases/latest)
+[![Version](https://img.shields.io/github/v/release/blasteur1916/ellipse?style=flat-square&label=public%20beta&color=6a3df0)](https://github.com/blasteur1916/ellipse/releases/latest)
+[![Windows 10 and 11](https://img.shields.io/badge/Windows-10%20%7C%2011-3d8bff?style=flat-square&logo=windows&logoColor=white)](https://github.com/blasteur1916/ellipse/releases/latest)
 [![GPL-3.0 license](https://img.shields.io/badge/license-GPL--3.0-2ea44f?style=flat-square)](LICENSE)
 [![100% local](https://img.shields.io/badge/100%25-local-111?style=flat-square)](#-privacy)
 
 <br>
 
-<a href="https://github.com/blasteur1916/furet/releases/latest">
+<a href="https://github.com/blasteur1916/ellipse/releases/latest">
   <img src="https://img.shields.io/badge/Download_for_Windows-3d8bff?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="44">
 </a>
 
-<sub>🧪 <b>Public beta</b>: it works, but it's young. <a href="https://github.com/blasteur1916/furet/issues/new">Tell me what breaks, what's missing, what you'd search for</a>.</sub>
+<sub>🧪 <b>Public beta</b>: it works, but it's young. <a href="https://github.com/blasteur1916/ellipse/issues/new">Tell me what breaks, what's missing, what you'd search for</a>.</sub>
 
 <br><br>
 
-<img src="docs/images/recherche.png" width="860" alt="The Furet search bar: “electricity bill” finds a PDF, a scanned PDF, a photo of a bill and a voice message, with the passage where the words appear.">
+<img src="docs/images/recherche.png" width="860" alt="The Ellipse search bar: “electricity bill” finds a PDF, a scanned PDF, a photo of a bill and a voice message, with the passage where the words appear.">
 
 <sub>“electricity bill”: a PDF, a scanned PDF, a photo of a bill and a voice message that mentions it.</sub>
 
@@ -32,19 +32,19 @@ One search bar, <kbd>Alt</kbd> + <kbd>Space</kbd>, and everything stays on your 
 
 <br>
 
-## Why Furet
+## Why Ellipse
 
-You remember what was **in** a file, rarely what it was called. Furet searches the way you remember:
+You remember what was **in** a file, rarely what it was called. Ellipse searches the way you remember:
 
-- **By meaning** — “a dog”, “the meeting where we talked about the budget”, “rental contract”: Furet understands text, images, and what is said in audio and video.
+- **By meaning** — “a dog”, “the meeting where we talked about the budget”, “rental contract”: Ellipse understands text, images, and what is said in audio and video.
 - **By name, everywhere** — every file on every drive, in a few milliseconds, kept up to date live.
 - **Without sending anything** — the AI model runs on your PC. No account, no cloud, no subscription.
 
 <br>
 
-## What Furet understands
+## What Ellipse understands
 
-| | Type | What Furet finds in it |
+| | Type | What Ellipse finds in it |
 |:-:|---|---|
 | 🖼️ | **Photos** | what they show, the text in them (OCR), where and when they were taken |
 | 📄 | **PDFs** | their text, even scanned, on the right page |
@@ -56,6 +56,8 @@ You remember what was **in** a file, rarely what it was called. Furet searches t
 | 🗜️ | **.zip archives** | the photos, PDFs, documents and notes inside |
 
 **Exact words** count too: an invoice number or a name is found, with the passage where it appears.
+
+**Apps come first**: type `chrome` and Google Chrome is right there, ready to launch (`vsc` works for Visual Studio Code).
 
 <br>
 
@@ -74,7 +76,7 @@ None of these photos is called “dog”.
 <td width="50%" valign="top">
 
 ### Filter as you type
-Type, date, size: just type them, Furet gets it.
+Type, date, size: just type them, Ellipse gets it.
 
 <img src="docs/images/filtres.png" alt="Searching “photos 2024” shows the Photos and 2024 chips, and the photos taken in 2024.">
 
@@ -102,7 +104,7 @@ From their GPS data, without any online service.
 
 ### Filters
 
-| You type | Furet understands |
+| You type | Ellipse understands |
 |---|---|
 | `pdf invoice` | PDFs about invoices |
 | `photos 2024` · `pictures march 2023` | photos taken at that date |
@@ -121,7 +123,7 @@ Name a photo `elliot.jpg`: searching “elliot” also finds the other photos wh
 
 | Key | Action |
 |---|---|
-| <kbd>Alt</kbd> + <kbd>Space</kbd> | open Furet, from anywhere |
+| <kbd>Alt</kbd> + <kbd>Space</kbd> | open Ellipse, from anywhere |
 | <kbd>↑</kbd> <kbd>↓</kbd> | pick a result |
 | <kbd>Enter</kbd> | open |
 | <kbd>Space</kbd> (after the arrows) or <kbd>Shift</kbd> + <kbd>Space</kbd> | preview |
@@ -141,17 +143,17 @@ You can also **drag** a result into another app or a folder: the file is copied,
 <tr>
 <td width="46%" valign="top">
 
-1. Download **`Furet_…_x64-setup.exe`** from the [releases page](https://github.com/blasteur1916/furet/releases/latest) and run it. No administrator rights needed.
+1. Download **`Ellipse_…_x64-setup.exe`** from the [releases page](https://github.com/blasteur1916/ellipse/releases/latest) and run it. No administrator rights needed.
 2. The installer isn't signed yet: if Windows says “Windows protected your PC”, click **More info**, then **Run anyway**.
-3. Pick your folders and options, then **Download and start**. Furet downloads its engine and models once (1.1 to 1.6 GB), each one verified; an interrupted download resumes where it stopped.
-4. Done: <kbd>Alt</kbd> + <kbd>Space</kbd>. Furet reads your files in the background; searching by name works right away.
+3. Pick your folders and options, then **Download and start**. Ellipse downloads its engine and models once (1.1 to 1.6 GB), each one verified; an interrupted download resumes where it stopped.
+4. Done: <kbd>Alt</kbd> + <kbd>Space</kbd>. Ellipse reads your files in the background; searching by name works right away.
 
 Updates arrive on their own.
 
 </td>
 <td width="54%" valign="top">
 
-<img src="docs/images/accueil.png" alt="Furet's welcome screen: folders to explore, options, and the “Download and start” button.">
+<img src="docs/images/accueil.png" alt="Ellipse's welcome screen: folders to explore, options, and the “Download and start” button.">
 
 </td>
 </tr>
@@ -166,9 +168,9 @@ The interface is in English and French (it follows your Windows language, and ca
 ## 🔒 Privacy
 
 - **Everything happens on your PC.** Your files, your searches and the index never leave your machine.
-- Furet only goes online to download its engine and models the first time, and to check for updates.
+- Ellipse only goes online to download its engine and models the first time, and to check for updates.
 - Its logs contain neither the content of your files nor what you search for.
-- Removing a folder from the settings removes its files from the index. Everything is stored in `%LOCALAPPDATA%\app.furet` and `%APPDATA%\app.furet`.
+- Removing a folder from the settings removes its files from the index. Everything is stored in `%LOCALAPPDATA%\app.ellipse` and `%APPDATA%\app.ellipse`.
 
 <br>
 
@@ -192,9 +194,9 @@ flowchart LR
     I --> S["Results and preview"]
 ```
 
-Every passage of text, every photo, every moment of a video becomes a **vector**, a list of numbers that sums up its meaning. Your search becomes a vector too, and Furet looks for the closest ones, on top of exact words and file names.
+Every passage of text, every photo, every moment of a video becomes a **vector**, a list of numbers that sums up its meaning. Your search becomes a vector too, and Ellipse looks for the closest ones, on top of exact words and file names.
 
-| For | Furet uses |
+| For | Ellipse uses |
 |---|---|
 | The meaning of text, images and audio | [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2) with [llama.cpp](https://github.com/ggml-org/llama.cpp) (Vulkan or CPU) |
 | Speech | [Parakeet TDT v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) |
@@ -221,11 +223,11 @@ You need [Rust](https://rustup.rs) 1.88 or newer, [Node.js](https://nodejs.org) 
 ```powershell
 cd app
 pnpm install
-pnpm tauri build --no-bundle   # → target\release\furet.exe
+pnpm tauri build --no-bundle   # → target\release\ellipse.exe
 pnpm tauri build               # → plus the installer, in target\release\bundle\nsis
 ```
 
-On first launch, the compiled app downloads its engine and models like the installed one. The `FURET_RACINE` variable points it to another folder.
+On first launch, the compiled app downloads its engine and models like the installed one. The `ELLIPSE_RACINE` variable points it to another folder.
 
 ```
 moteur/   the library: indexing, search, OCR, speech, faces, places, filters
@@ -234,9 +236,9 @@ app/      the app: React interface (app/src) and Rust (app/src-tauri)
 ```
 
 ```powershell
-cargo build --release -p furet-proto
-target\release\furet-proto.exe --racine <Furet folder> index C:\Users\me\Documents
-target\release\furet-proto.exe --racine <Furet folder> cherche "electricity bill"
+cargo build --release -p ellipse-proto
+target\release\ellipse-proto.exe --racine <Ellipse folder> index C:\Users\me\Documents
+target\release\ellipse-proto.exe --racine <Ellipse folder> cherche "electricity bill"
 ```
 
 </details>
@@ -245,11 +247,11 @@ target\release\furet-proto.exe --racine <Furet folder> cherche "electricity bill
 
 ## Feedback
 
-Furet is in **public beta** (0.9). Every report helps: a search that found nothing, a file type it can't read, a crash, a slow PC, an idea.
+Ellipse is in **public beta** (0.9). Every report helps: a search that found nothing, a file type it can't read, a crash, a slow PC, an idea.
 
-- [Open an issue](https://github.com/blasteur1916/furet/issues/new) — in English or French.
+- [Open an issue](https://github.com/blasteur1916/ellipse/issues/new) — in English or French.
 - Useful to include: your Windows version, your GPU, how many files you indexed, and what you searched for (if you're OK sharing it).
-- Logs are in `%LOCALAPPDATA%\app.furet\logs` (they never contain your files' content or your searches).
+- Logs are in `%LOCALAPPDATA%\app.ellipse\logs` (they never contain your files' content or your searches).
 
 <br>
 
@@ -262,7 +264,7 @@ Furet is in **public beta** (0.9). Every report helps: a search that found nothi
 
 ## License
 
-Furet is free software, under the [GPL-3.0](LICENSE) license.
+Ellipse is free software, under the [GPL-3.0](LICENSE) license.
 
 <details>
 <summary>What it downloads and uses</summary>

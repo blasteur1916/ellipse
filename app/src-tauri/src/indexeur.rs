@@ -8,14 +8,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use furet_moteur::indexation::{self, Fin, Progres};
+use ellipse_moteur::indexation::{self, Fin, Progres};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::{installation, plateforme, recherche, reglages};
-use furet_moteur::installation::Groupe;
+use ellipse_moteur::installation::Groupe;
 
-pub const EVT_ETAT: &str = "furet://indexation";
+pub const EVT_ETAT: &str = "ellipse://indexation";
 /// Le lancement de l'appli reste léger : l'indexation attend un peu.
 const ATTENTE_AU_DEMARRAGE: Duration = Duration::from_secs(8);
 /// Pour attraper les fichiers nouveaux ou modifiés (en attendant de suivre le disque en direct, étape 5).
@@ -78,11 +78,11 @@ fn partage() -> std::sync::MutexGuard<'static, Partage> {
 
 pub fn demarrer(app: &AppHandle) {
     // Mode de test (index d'essai) : rien n'est indexé, et la barre n'affiche aucun état d'indexation.
-    if std::env::var_os("FURET_TEST").is_some() {
+    if std::env::var_os("ELLIPSE_TEST").is_some() {
         return;
     }
     let app = app.clone();
-    let lance = std::thread::Builder::new().name("furet-indexation".into()).spawn(move || gardien(&app));
+    let lance = std::thread::Builder::new().name("ellipse-indexation".into()).spawn(move || gardien(&app));
     if let Err(e) = lance {
         log::error!("l'indexation n'a pas pu démarrer : {e}");
     }
@@ -285,8 +285,8 @@ pub fn reglages_changes() {
 pub fn oublier(dossier: PathBuf) {
     std::thread::spawn(move || {
         let (_, base) = recherche::racine_et_base();
-        let r = furet_moteur::base::ouvrir(&base)
-            .and_then(|mut b| furet_moteur::base::oublier_dossier(&mut b, &dossier.to_string_lossy()));
+        let r = ellipse_moteur::base::ouvrir(&base)
+            .and_then(|mut b| ellipse_moteur::base::oublier_dossier(&mut b, &dossier.to_string_lossy()));
         if let Err(e) = r {
             log::warn!("dossier retiré mais pas oublié de l'index : {e:#}");
         }

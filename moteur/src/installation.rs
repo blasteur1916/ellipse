@@ -1,6 +1,7 @@
-//! Ce que Furet télécharge au premier lancement : le moteur (llama.cpp), les modèles, pdfium, ffmpeg et la
+//! Ce qu'Ellipse télécharge au premier lancement : le moteur (llama.cpp), les modèles, pdfium, ffmpeg et la
 //! liste des villes. Chaque fichier est vérifié (SHA-256) ; un téléchargement coupé reprend où il en était.
-//! On ne garde des archives que ce qui sert. La liste des paquets est propre à Windows (Linux : étape à part).
+//! On ne garde des archives que ce qui sert. Une liste par système : Windows, Linux (x64 ; FFmpeg est celui
+//! du système), macOS (Apple Silicon ; FFmpeg aussi pris dans le système pour l'instant).
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -27,6 +28,8 @@ enum Forme {
     /// Un fichier tel quel, à ce chemin (relatif à la racine).
     Fichier(&'static str),
     /// Une archive : `garder` dit où ranger chaque fichier qui sert (chemin relatif à la racine), ou rien.
+    // Les archives zip ne servent que sous Windows (ailleurs, des tar).
+    #[cfg_attr(not(windows), allow(dead_code))]
     Zip(fn(&str) -> Option<String>),
     TarGz(fn(&str) -> Option<String>),
     TarBz2(fn(&str) -> Option<String>),
@@ -50,11 +53,33 @@ pub struct Paquet {
     present: &'static str,
 }
 
+#[cfg(windows)]
 const LLAMA_GARDER: fn(&str) -> bool = |nom| {
     let nom = nom.rsplit('/').next().unwrap_or(nom);
     nom == "llama-server.exe"
         || nom.starts_with("LICENSE")
         || (nom.ends_with(".dll") && (!nom.contains("-impl") || nom == "llama-server-impl.dll"))
+};
+
+/// Linux et macOS : le programme, ses bibliothèques (sans celles des autres outils, « -impl »), la licence.
+#[cfg(unix)]
+const LLAMA_GARDER_UNIX: fn(&str) -> bool = |nom| {
+    let nom = nom.rsplit('/').next().unwrap_or(nom);
+    let bibliotheque = nom.contains(".so") || nom.ends_with(".dylib");
+    nom == "llama-server"
+        || nom.starts_with("LICENSE")
+        || (bibliotheque && (!nom.contains("-impl") || nom.starts_with("libllama-server-impl")))
+};
+
+/// sherpa-onnx hors de Windows : le serveur de transcription, ses bibliothèques et sa licence, rangés
+/// comme dans l'archive (sous `outils/sherpa-onnx`).
+#[cfg(unix)]
+const SHERPA_GARDER_UNIX: fn(&str) -> Option<String> = |n| {
+    let f = dernier(n);
+    let sert = (n.contains("/bin/") && f == "sherpa-onnx-offline-websocket-server")
+        || (n.contains("/lib/") && (f.contains(".so") || f.ends_with(".dylib")))
+        || f.starts_with("LICENSE");
+    sert.then(|| format!("outils/sherpa-onnx/{}", n.trim_start_matches("./")))
 };
 
 fn dernier(chemin: &str) -> &str {
@@ -83,26 +108,8 @@ pub const PAQUETS: [Paquet; 11] = [
         forme: Forme::Zip(|n| LLAMA_GARDER(n).then(|| format!("outils/llama-vulkan/{}", dernier(n)))),
         present: "outils/llama-vulkan/llama-server.exe",
     },
-    Paquet {
-        nom_fr: "Modèle EmbeddingGemma 2",
-        nom_en: "EmbeddingGemma 2 model",
-        groupe: Groupe::Essentiel,
-        url: "https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/main/embeddinggemma-2-Q8_0.gguf",
-        taille: 309_855_456,
-        sha256: Some("2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135"),
-        forme: Forme::Fichier("modeles/embeddinggemma-2-Q8_0.gguf"),
-        present: "modeles/embeddinggemma-2-Q8_0.gguf",
-    },
-    Paquet {
-        nom_fr: "Modèle EmbeddingGemma 2 (images et sons)",
-        nom_en: "EmbeddingGemma 2 model (images and sound)",
-        groupe: Groupe::Essentiel,
-        url: "https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/main/mmproj-embeddinggemma-2-Q8_0.gguf",
-        taille: 554_821_056,
-        sha256: Some("0531309472a6bc6f4b146c3736eee7795ec9db1903c25490d3c937490cef6dd8"),
-        forme: Forme::Fichier("modeles/mmproj-embeddinggemma-2-Q8_0.gguf"),
-        present: "modeles/mmproj-embeddinggemma-2-Q8_0.gguf",
-    },
+    MODELE,
+    MMPROJ,
     Paquet {
         nom_fr: "Lecteur de PDF (PDFium)",
         nom_en: "PDF reader (PDFium)",
@@ -131,16 +138,7 @@ pub const PAQUETS: [Paquet; 11] = [
         }),
         present: "outils/ffmpeg/ffprobe.exe",
     },
-    Paquet {
-        nom_fr: "Villes du monde (GeoNames)",
-        nom_en: "World cities (GeoNames)",
-        groupe: Groupe::Essentiel,
-        url: "https://download.geonames.org/export/dump/cities15000.zip",
-        taille: 3_600_000,
-        sha256: None,
-        forme: Forme::Lieux,
-        present: "modeles/lieux/villes.tsv",
-    },
+    VILLES,
     Paquet {
         nom_fr: "Transcription (sherpa-onnx)",
         nom_en: "Speech recognition (sherpa-onnx)",
@@ -156,44 +154,174 @@ pub const PAQUETS: [Paquet; 11] = [
         }),
         present: "outils/sherpa-onnx/sherpa-onnx-v2.0.1-win-x64-shared-MD-Release-no-tts/bin/sherpa-onnx-offline-websocket-server.exe",
     },
-    Paquet {
-        nom_fr: "Modèle de transcription Parakeet v3",
-        nom_en: "Parakeet v3 speech model",
-        groupe: Groupe::Transcription,
-        url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
-        taille: 487_211_443,
-        sha256: Some("1495e91b59d7fc53ddca91f3431758ec99f8fa253fdb0e1e851be0f72b14b0f9"),
-        forme: Forme::TarBz2(|n| {
-            let f = dernier(n);
-            (f.ends_with(".onnx") || f == "tokens.txt" || f == "README.md")
-                .then(|| format!("modeles/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/{f}"))
-        }),
-        present: "modeles/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/encoder.int8.onnx",
-    },
-    Paquet {
-        nom_fr: "Détection des visages (YuNet)",
-        nom_en: "Face detection (YuNet)",
-        groupe: Groupe::Visages,
-        url: "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
-        taille: 232_589,
-        sha256: Some("8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"),
-        forme: Forme::Fichier("modeles/visages/face_detection_yunet_2023mar.onnx"),
-        present: "modeles/visages/face_detection_yunet_2023mar.onnx",
-    },
-    Paquet {
-        nom_fr: "Reconnaissance des visages (SFace)",
-        nom_en: "Face recognition (SFace)",
-        groupe: Groupe::Visages,
-        url: "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
-        taille: 38_696_353,
-        sha256: Some("0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79"),
-        forme: Forme::Fichier("modeles/visages/face_recognition_sface_2021dec.onnx"),
-        present: "modeles/visages/face_recognition_sface_2021dec.onnx",
-    },
+    PARAKEET,
+    YUNET,
+    SFACE,
 ];
 
-#[cfg(not(windows))]
-pub const PAQUETS: [Paquet; 0] = [];
+/// Les paquets communs à tous les systèmes : les modèles et les villes.
+const MODELE: Paquet = Paquet {
+    nom_fr: "Modèle EmbeddingGemma 2",
+    nom_en: "EmbeddingGemma 2 model",
+    groupe: Groupe::Essentiel,
+    url: "https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/main/embeddinggemma-2-Q8_0.gguf",
+    taille: 309_855_456,
+    sha256: Some("2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135"),
+    forme: Forme::Fichier("modeles/embeddinggemma-2-Q8_0.gguf"),
+    present: "modeles/embeddinggemma-2-Q8_0.gguf",
+};
+const MMPROJ: Paquet = Paquet {
+    nom_fr: "Modèle EmbeddingGemma 2 (images et sons)",
+    nom_en: "EmbeddingGemma 2 model (images and sound)",
+    groupe: Groupe::Essentiel,
+    url: "https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/main/mmproj-embeddinggemma-2-Q8_0.gguf",
+    taille: 554_821_056,
+    sha256: Some("0531309472a6bc6f4b146c3736eee7795ec9db1903c25490d3c937490cef6dd8"),
+    forme: Forme::Fichier("modeles/mmproj-embeddinggemma-2-Q8_0.gguf"),
+    present: "modeles/mmproj-embeddinggemma-2-Q8_0.gguf",
+};
+const VILLES: Paquet = Paquet {
+    nom_fr: "Villes du monde (GeoNames)",
+    nom_en: "World cities (GeoNames)",
+    groupe: Groupe::Essentiel,
+    url: "https://download.geonames.org/export/dump/cities15000.zip",
+    taille: 3_600_000,
+    sha256: None,
+    forme: Forme::Lieux,
+    present: "modeles/lieux/villes.tsv",
+};
+const PARAKEET: Paquet = Paquet {
+    nom_fr: "Modèle de transcription Parakeet v3",
+    nom_en: "Parakeet v3 speech model",
+    groupe: Groupe::Transcription,
+    url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
+    taille: 487_211_443,
+    sha256: Some("1495e91b59d7fc53ddca91f3431758ec99f8fa253fdb0e1e851be0f72b14b0f9"),
+    forme: Forme::TarBz2(|n| {
+        let f = dernier(n);
+        (f.ends_with(".onnx") || f == "tokens.txt" || f == "README.md")
+            .then(|| format!("modeles/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/{f}"))
+    }),
+    present: "modeles/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/encoder.int8.onnx",
+};
+const YUNET: Paquet = Paquet {
+    nom_fr: "Détection des visages (YuNet)",
+    nom_en: "Face detection (YuNet)",
+    groupe: Groupe::Visages,
+    url: "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+    taille: 232_589,
+    sha256: Some("8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"),
+    forme: Forme::Fichier("modeles/visages/face_detection_yunet_2023mar.onnx"),
+    present: "modeles/visages/face_detection_yunet_2023mar.onnx",
+};
+const SFACE: Paquet = Paquet {
+    nom_fr: "Reconnaissance des visages (SFace)",
+    nom_en: "Face recognition (SFace)",
+    groupe: Groupe::Visages,
+    url: "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
+    taille: 38_696_353,
+    sha256: Some("0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79"),
+    forme: Forme::Fichier("modeles/visages/face_recognition_sface_2021dec.onnx"),
+    present: "modeles/visages/face_recognition_sface_2021dec.onnx",
+};
+
+#[cfg(target_os = "linux")]
+pub const PAQUETS: [Paquet; 10] = [
+    Paquet {
+        nom_fr: "Moteur de recherche (processeur)",
+        nom_en: "Search engine (CPU)",
+        groupe: Groupe::Essentiel,
+        url: "https://github.com/ggml-org/llama.cpp/releases/download/b12202/llama-b12202-bin-ubuntu-x64.tar.gz",
+        taille: 23_066_943,
+        sha256: Some("9076cf9b2ce5b849384711e85b0c37d18c36b1475106c236941de2b6f0899a88"),
+        forme: Forme::TarGz(|n| LLAMA_GARDER_UNIX(n).then(|| format!("outils/llama-cpu/{}", dernier(n)))),
+        present: "outils/llama-cpu/llama-server",
+    },
+    Paquet {
+        nom_fr: "Moteur de recherche (carte graphique)",
+        nom_en: "Search engine (GPU)",
+        groupe: Groupe::Essentiel,
+        url: "https://github.com/ggml-org/llama.cpp/releases/download/b12202/llama-b12202-bin-ubuntu-vulkan-x64.tar.gz",
+        taille: 35_880_958,
+        sha256: Some("c1eaf8fcaf0b17c1fe9097f7ff08bad484cd451533e7f2075381d18d220694e7"),
+        forme: Forme::TarGz(|n| LLAMA_GARDER_UNIX(n).then(|| format!("outils/llama-vulkan/{}", dernier(n)))),
+        present: "outils/llama-vulkan/llama-server",
+    },
+    MODELE,
+    MMPROJ,
+    Paquet {
+        nom_fr: "Lecteur de PDF (PDFium)",
+        nom_en: "PDF reader (PDFium)",
+        groupe: Groupe::Essentiel,
+        url: "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F8138/pdfium-linux-x64.tgz",
+        taille: 3_945_444,
+        sha256: Some("d6b1e28950a0392590d79bbdbb7eb19686872b688f8a36f170acb19e41473113"),
+        forme: Forme::TarGz(|n| match n.trim_start_matches("./") {
+            "lib/libpdfium.so" => Some("outils/pdfium/bin/libpdfium.so".into()),
+            "LICENSE" => Some("outils/pdfium/LICENSE".into()),
+            _ => None,
+        }),
+        present: "outils/pdfium/bin/libpdfium.so",
+    },
+    VILLES,
+    Paquet {
+        nom_fr: "Transcription (sherpa-onnx)",
+        nom_en: "Speech recognition (sherpa-onnx)",
+        groupe: Groupe::Transcription,
+        url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-v2.0.1-linux-x64-shared-no-tts.tar.bz2",
+        taille: 25_289_904,
+        sha256: Some("b3b095f619059d54914027ff38f8a0a132ea3bbc5df32a212a9743a8bd1467b2"),
+        forme: Forme::TarBz2(SHERPA_GARDER_UNIX),
+        present: "outils/sherpa-onnx/sherpa-onnx-v2.0.1-linux-x64-shared-no-tts/bin/sherpa-onnx-offline-websocket-server",
+    },
+    PARAKEET,
+    YUNET,
+    SFACE,
+];
+
+#[cfg(target_os = "macos")]
+pub const PAQUETS: [Paquet; 9] = [
+    Paquet {
+        nom_fr: "Moteur de recherche (Metal)",
+        nom_en: "Search engine (Metal)",
+        groupe: Groupe::Essentiel,
+        url: "https://github.com/ggml-org/llama.cpp/releases/download/b12202/llama-b12202-bin-macos-arm64.tar.gz",
+        taille: 16_708_383,
+        sha256: Some("e70cd5918fb1db75652cee66bd6ab9c933cc0c5acf632f15df672c00829ebcaf"),
+        forme: Forme::TarGz(|n| LLAMA_GARDER_UNIX(n).then(|| format!("outils/llama-metal/{}", dernier(n)))),
+        present: "outils/llama-metal/llama-server",
+    },
+    MODELE,
+    MMPROJ,
+    Paquet {
+        nom_fr: "Lecteur de PDF (PDFium)",
+        nom_en: "PDF reader (PDFium)",
+        groupe: Groupe::Essentiel,
+        url: "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F8138/pdfium-mac-arm64.tgz",
+        taille: 3_634_799,
+        sha256: Some("21a1567b397b571f4f77f21ca91eac7b892774219c3c715a5127a20950ccb18b"),
+        forme: Forme::TarGz(|n| match n.trim_start_matches("./") {
+            "lib/libpdfium.dylib" => Some("outils/pdfium/bin/libpdfium.dylib".into()),
+            "LICENSE" => Some("outils/pdfium/LICENSE".into()),
+            _ => None,
+        }),
+        present: "outils/pdfium/bin/libpdfium.dylib",
+    },
+    VILLES,
+    Paquet {
+        nom_fr: "Transcription (sherpa-onnx)",
+        nom_en: "Speech recognition (sherpa-onnx)",
+        groupe: Groupe::Transcription,
+        url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-v2.0.1-osx-arm64-shared-no-tts.tar.bz2",
+        taille: 18_663_994,
+        sha256: Some("4fcc6c77c8d8d2e2f04cfdc17c6fd224c01469b78529370eb9d8e0e5ec97ac79"),
+        forme: Forme::TarBz2(SHERPA_GARDER_UNIX),
+        present: "outils/sherpa-onnx/sherpa-onnx-v2.0.1-osx-arm64-shared-no-tts/bin/sherpa-onnx-offline-websocket-server",
+    },
+    PARAKEET,
+    YUNET,
+    SFACE,
+];
 
 /// Les fichiers de GeoNames et du CLDR dont on tire `modeles/lieux`.
 const LIEUX_SOURCES: [(&str, &str); 4] = [
@@ -282,7 +410,7 @@ fn telecharger(url: &str, fichier: &Path, arret: &AtomicBool, suivi: &mut dyn Fn
         fichier.extension().and_then(|e| e.to_str()).unwrap_or("")
     ));
     let deja = fs::metadata(&partiel).map_or(0, |m| m.len());
-    let mut requete = ureq::get(url).header("User-Agent", "Furet (recherche de fichiers)");
+    let mut requete = ureq::get(url).header("User-Agent", "Ellipse (recherche de fichiers)");
     if deja > 0 {
         requete = requete.header("Range", format!("bytes={deja}-"));
     }
@@ -372,15 +500,35 @@ fn ranger(racine: &Path, archive: &Path, forme: Forme) -> Result<()> {
                 _ => Box::new(bzip2::read::BzDecoder::new(f)),
             };
             let mut tar = tar::Archive::new(flux);
+            // Les liens (« libllama.so.0 → libllama.so.0.9.0 ») : refaits en copies une fois tout rangé.
+            let mut liens: Vec<(String, String)> = Vec::new();
             for entree in tar.entries()? {
                 let mut entree = entree?;
-                if !entree.header().entry_type().is_file() {
+                let sorte = entree.header().entry_type();
+                let nom = entree.path()?.to_string_lossy().replace('\\', "/");
+                if sorte.is_symlink() {
+                    if let (Some(relatif), Ok(Some(cible))) = (garder(&nom), entree.link_name()) {
+                        liens.push((relatif, cible.to_string_lossy().into_owned()));
+                    }
                     continue;
                 }
-                let nom = entree.path()?.to_string_lossy().replace('\\', "/");
+                if !sorte.is_file() {
+                    continue;
+                }
                 if let Some(relatif) = garder(&nom) {
+                    let executable = entree.header().mode().is_ok_and(|m| m & 0o111 != 0);
                     ecrire(racine, &relatif, &mut entree)?;
+                    if executable {
+                        rendre_executable(&racine.join(&relatif))?;
+                    }
                     ranges += 1;
+                }
+            }
+            for (relatif, cible) in liens {
+                let lien = racine.join(&relatif);
+                let source = lien.with_file_name(&cible);
+                if source.is_file() && !cible.contains('/') {
+                    fs::copy(&source, &lien)?;
                 }
             }
         }
@@ -389,6 +537,18 @@ fn ranger(racine: &Path, archive: &Path, forme: Forme) -> Result<()> {
     if ranges == 0 {
         bail!("rien d'utile dans l'archive");
     }
+    Ok(())
+}
+
+/// Un programme ou une bibliothèque tiré d'une archive reste exécutable (Linux, macOS).
+fn rendre_executable(fichier: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(fichier, fs::Permissions::from_mode(0o755))?;
+    }
+    #[cfg(not(unix))]
+    let _ = fichier;
     Ok(())
 }
 

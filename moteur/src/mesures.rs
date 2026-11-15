@@ -1,25 +1,62 @@
-//! Mémoire vive (pics Windows) et mémoire de la carte graphique (nvidia-smi).
+//! Mémoire vive (pics) et mémoire de la carte graphique (nvidia-smi).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
-use windows::Win32::Foundation::HANDLE;
-use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
-use windows::Win32::System::Threading::GetCurrentProcess;
 
-/// Pic de mémoire vive (working set) d'un processus, en octets.
-pub fn pic_memoire(processus: HANDLE) -> u64 {
+/// Pic de mémoire vive (working set) d'un processus Windows, en octets.
+#[cfg(windows)]
+fn pic_memoire(processus: windows::Win32::Foundation::HANDLE) -> u64 {
+    use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
     let mut c = PROCESS_MEMORY_COUNTERS::default();
     let taille = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    // SAFETY : la poignée est valide tant que le processus l'est ; la structure est locale.
     match unsafe { GetProcessMemoryInfo(processus, &mut c, taille) } {
         Ok(()) => c.PeakWorkingSetSize as u64,
         Err(_) => 0,
     }
 }
 
+/// Pic de mémoire vive d'un programme lancé par Ellipse, en octets (0 si inconnu).
+pub fn pic_memoire_enfant(enfant: &std::process::Child) -> u64 {
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        pic_memoire(windows::Win32::Foundation::HANDLE(enfant.as_raw_handle()))
+    }
+    // Linux : « VmHWM », le plus haut de la mémoire résidente, en Ko.
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string(format!("/proc/{}/status", enfant.id()))
+            .ok()
+            .and_then(|s| s.lines().find(|l| l.starts_with("VmHWM:")).and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok()))
+            .map_or(0, |ko| ko << 10)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = enfant;
+        0
+    }
+}
+
 pub fn pic_memoire_programme() -> u64 {
-    pic_memoire(unsafe { GetCurrentProcess() })
+    #[cfg(windows)]
+    {
+        // SAFETY : la pseudo-poignée du processus courant est toujours valide.
+        pic_memoire(unsafe { windows::Win32::System::Threading::GetCurrentProcess() })
+    }
+    #[cfg(unix)]
+    {
+        // SAFETY : `getrusage` remplit une structure locale.
+        let mut u: libc::rusage = unsafe { std::mem::zeroed() };
+        if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut u) } != 0 {
+            return 0;
+        }
+        // En Ko sous Linux, en octets sur macOS.
+        let max = u.ru_maxrss as u64;
+        if cfg!(target_os = "macos") { max } else { max << 10 }
+    }
 }
 
 /// Mémoire utilisée sur la première carte NVIDIA, en octets (None sans nvidia-smi).

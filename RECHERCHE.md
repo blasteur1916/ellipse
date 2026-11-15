@@ -1,4 +1,4 @@
-# Furet (nom provisoire) — recherche avant de commencer
+# Ellipse (nom provisoire) — recherche avant de commencer
 
 Une appli Windows qui retrouve un fichier **par ce qu'il contient** : une photo par ce qu'elle montre, un PDF par une phrase, un enregistrement par ce qui s'y dit, une vidéo au moment exact d'une scène. Et, dans la même barre, un fichier **par son nom**, instantanément, comme Everything.
 
@@ -164,7 +164,7 @@ Ensuite seulement : l'appli Tauri avec le design ci-dessus, puis l'indexation en
 
 ## 9. Résultats du prototype (8 novembre 2026)
 
-Prototype Rust en ligne de commande : `proto/` (`furet-proto index | cherche | stats`). Mesures sur le PC de développement : RTX 4070 Laptop (8 Go), i7-12700H, 16 Go.
+Prototype Rust en ligne de commande : `proto/` (`ellipse-proto index | cherche | stats`). Mesures sur le PC de développement : RTX 4070 Laptop (8 Go), i7-12700H, 16 Go.
 
 ### Ce qui est installé (tout dans `D:\furet`, rien dans Windows)
 
@@ -252,7 +252,7 @@ Prototype Rust en ligne de commande : `proto/` (`furet-proto index | cherche | s
 ### Pertinence et fluidité (10 novembre)
 
 - Un mot inventé (« zorglub », « xkqzv ») faisait sortir des fichiers de code juste au-dessus du seuil (0,75 à 0,78). La forme des scores (écart du premier à la moyenne) ne sépare pas ces recherches des vraies. Ce qui les sépare : la ressemblance de la recherche au vecteur moyen de 12 mots inventés — 0,83 à 0,87 pour les mots inventés, 0,72 à 0,81 pour 13 vraies recherches. Le seuil monte de 2,5 fois l'excès au-dessus de 0,80 : plus aucun résultat pour les mots inventés, « logo », « azerty », « un chat » gardent les leurs (exemple `moteur/examples/calibrer_requetes.rs`).
-- Par le nom : 40 candidats reclassés (fichiers ouverts depuis Furet, demi-vie 30 jours ; dossiers indexés +0,04 ; dossier de l'utilisateur +0,02 ; nom exact +0,05), sans rien lire sur le disque (un disque dur en veille mettrait des secondes à répondre).
+- Par le nom : 40 candidats reclassés (fichiers ouverts depuis Ellipse, demi-vie 30 jours ; dossiers indexés +0,04 ; dossier de l'utilisateur +0,02 ; nom exact +0,05), sans rien lire sur le disque (un disque dur en veille mettrait des secondes à répondre).
 - Les commandes synchrones de Tauri tournent sur le fil de l'interface : la recherche par le nom passe sur un fil à part.
 
 ### Premier lancement et installateur (étapes 8 et 9)

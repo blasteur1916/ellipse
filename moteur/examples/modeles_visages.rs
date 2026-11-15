@@ -1,5 +1,5 @@
 //! Vérifie que tract sait lire les modèles de visages, et montre leurs entrées et sorties.
-//! cargo run --release -p furet-moteur --example modeles_visages
+//! cargo run --release -p ellipse-moteur --example modeles_visages
 
 use tract_onnx::prelude::*;
 

@@ -6,10 +6,10 @@ use tauri::tray::TrayIconBuilder;
 const QUITTER: &str = "quitter";
 
 pub fn creer(app: &tauri::App) -> tauri::Result<()> {
-    let quitter = MenuItem::with_id(app, QUITTER, furet_moteur::langue::t("Quitter Furet", "Quit Furet"), true, None::<&str>)?;
+    let quitter = MenuItem::with_id(app, QUITTER, ellipse_moteur::langue::t("Quitter Ellipse", "Quit Ellipse"), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&quitter])?;
     let mut icone = TrayIconBuilder::with_id("principale")
-        .tooltip(furet_moteur::langue::t("Furet — Alt+Espace pour chercher", "Furet — Alt+Space to search"))
+        .tooltip(ellipse_moteur::langue::t("Ellipse — Alt+Espace pour chercher", "Ellipse — Alt+Space to search"))
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| {

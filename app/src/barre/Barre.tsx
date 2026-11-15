@@ -37,12 +37,13 @@ const HAUTEUR_MESSAGE = 42;
 const MARGES_LISTE = 21;
 
 interface Groupe {
-  /** Par le nom, par le contenu, les plus récents (seulement des filtres), récents (barre vide). */
-  sorte: "nom" | "contenu" | "plus_recents" | "recents";
+  /** Applications, par le nom, par le contenu, les plus récents (seulement des filtres), récents (barre vide). */
+  sorte: "applis" | "nom" | "contenu" | "plus_recents" | "recents";
   lignes: Ligne[];
 }
 
 const titres: Record<Groupe["sorte"], () => string> = {
+  applis: () => tr("Applications", "Apps"),
   nom: () => tr("Par le nom", "By name"),
   contenu: () => tr("Par le contenu", "By content"),
   plus_recents: () => tr("Les plus récents", "Most recent"),
@@ -150,6 +151,9 @@ export function Barre({
   const derniere = useRef("");
   // Les flèches ont servi depuis la dernière frappe : Espace ouvre alors l'aperçu au lieu d'écrire.
   const navigue = useRef(false);
+  // Le choix vient d'être déplacé au clavier : la liste défile pour le montrer (pas quand la souris le survole).
+  const parClavier = useRef(false);
+  const listeRef = useRef<HTMLDivElement>(null);
   const glisse = useRef<{ x: number; y: number; ligne: Ligne; parti: boolean } | null>(null);
   const recherche = texte.trim();
   // Le texte cherché sans les filtres (« photos 2024 chat » → « chat »).
@@ -211,6 +215,25 @@ export function Barre({
     setApercu(true);
   });
 
+  // Le résultat choisi au clavier reste visible ; le premier remonte tout en haut (son titre de groupe avec).
+  // Seule la liste défile : scrollIntoView ferait aussi glisser l'île, et le champ sortirait par le haut.
+  useEffect(() => {
+    const l = listeRef.current;
+    if (!l) return;
+    const ligne = l.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (choisi === 0) {
+      l.scrollTop = 0;
+    } else if (parClavier.current && ligne) {
+      // Le titre du groupe reste visible au-dessus de la première ligne d'un groupe.
+      const titre = ligne.previousElementSibling?.classList.contains("barre-titre") ? HAUTEUR_TITRE : 0;
+      const haut = ligne.offsetTop - titre;
+      const bas = ligne.offsetTop + ligne.offsetHeight;
+      if (haut < l.scrollTop) l.scrollTop = haut;
+      else if (bas > l.scrollTop + l.clientHeight) l.scrollTop = bas - l.clientHeight;
+    }
+    parClavier.current = false;
+  }, [choisi]);
+
   useEffect(() => {
     if (!note) return;
     const t = setTimeout(() => setNote(null), NOTE_MS);
@@ -218,12 +241,15 @@ export function Barre({
   }, [note]);
 
   const groupes = useMemo(() => {
-    const parNom = noms.lignes.slice(0, NOMS_MAX);
+    // Les applications arrivent en tête de la recherche par le nom : elles ont leur groupe, toujours le premier.
+    const applis = noms.lignes.filter((l) => l.genre === "application");
+    const parNom = noms.lignes.filter((l) => l.genre !== "application").slice(0, NOMS_MAX);
     const dejaLa = new Set(parNom.map((l) => l.cle));
     const parContenu = contenu.lignes.filter((l) => !dejaLa.has(l.cle)).slice(0, CONTENU_MAX + (parNom.length === 0 ? NOMS_MAX : 0));
     const g: Groupe[] = [];
     // La barre vide : les fichiers ouverts récemment.
     if (!recherche && recents && recents.length > 0) g.push({ sorte: "recents", lignes: recents });
+    if (recherche && applis.length > 0) g.push({ sorte: "applis", lignes: applis });
     if (recherche && parNom.length > 0) g.push({ sorte: "nom", lignes: parNom });
     if (recherche && parContenu.length > 0) g.push({ sorte: seulementFiltres ? "plus_recents" : "contenu", lignes: parContenu });
     return g;
@@ -277,16 +303,17 @@ export function Barre({
   }, []);
 
   const ouvrir = (ligne: Ligne | undefined, dossier: boolean) => {
-    if (ligne) ouvrirFichier(ligne, dossier).catch(ignorer);
+    if (ligne) ouvrirFichier(ligne, dossier && ligne.genre !== "application").catch(ignorer);
   };
+  // Une application n'est pas un fichier : ni chemin à copier, ni « ouvrir avec », ni aperçu.
   const copier = (ligne: Ligne | undefined) => {
-    if (ligne)
+    if (ligne && ligne.genre !== "application")
       copierChemin(ligne)
         .then(() => setNote({ cle: ligne.cle, texte: tr("Chemin copié", "Path copied") }))
         .catch(ignorer);
   };
   const ouvrirAutrement = (ligne: Ligne | undefined) => {
-    if (ligne) ouvrirAvec(ligne).catch(ignorer);
+    if (ligne && ligne.genre !== "application") ouvrirAvec(ligne).catch(ignorer);
   };
 
   let rang = 0;
@@ -313,16 +340,18 @@ export function Barre({
               if (apercu) setApercu(false);
               else if (texte) setTexte("");
               else fermerBarre(true).catch(ignorer);
-            } else if (e.key === " " && choisie && (apercu || navigue.current || e.shiftKey)) {
+            } else if (e.key === " " && choisie && choisie.genre !== "application" && (apercu || navigue.current || e.shiftKey)) {
               e.preventDefault();
               setApercu((a) => !a);
             } else if (e.key === "ArrowDown") {
               e.preventDefault();
               navigue.current = true;
+              parClavier.current = true;
               setChoisi((c) => Math.min(c + 1, liste.length - 1));
             } else if (e.key === "ArrowUp") {
               e.preventDefault();
               navigue.current = true;
+              parClavier.current = true;
               setChoisi((c) => Math.max(c - 1, 0));
             } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && enApercu) {
               // Les pages du PDF (l'aperçu écoute ces touches) : le curseur du champ ne bouge pas.
@@ -358,14 +387,14 @@ export function Barre({
         <Apercu ligne={choisie} mots={mots} />
       ) : (
         (groupes.length > 0 || message) && (
-          <div className={`barre-liste ${lent && !contenuAJour ? "barre-liste--ancienne" : ""}`} role="listbox">
+          <div ref={listeRef} className={`barre-liste ${lent && !contenuAJour ? "barre-liste--ancienne" : ""}`} role="listbox">
             {groupes.map((g) => (
               <div key={g.sorte} className="barre-groupe">
                 <div className="barre-titre">{titres[g.sorte]()}</div>
                 {g.lignes.map((ligne) => {
                   const i = rang++;
                   const actif = i === choisi;
-                  const parContenu = g.sorte !== "nom";
+                  const parContenu = g.sorte !== "nom" && g.sorte !== "applis";
                   return (
                     <div
                       key={ligne.cle}
@@ -410,6 +439,7 @@ export function Barre({
                         </span>
                       </span>
                       {actif &&
+                        ligne.genre !== "application" &&
                         (note?.cle === ligne.cle ? (
                           <span className="barre-indice">{note.texte}</span>
                         ) : (

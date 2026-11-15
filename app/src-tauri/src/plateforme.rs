@@ -28,7 +28,15 @@ pub fn sur_batterie() -> bool {
         }
         batterie && secteur_branche == Some(false)
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    // macOS : « pmset » dit d'où vient le courant (« AC Power » ou « Battery Power »).
+    #[cfg(target_os = "macos")]
+    {
+        ellipse_moteur::processus::commande("pmset")
+            .args(["-g", "batt"])
+            .output()
+            .is_ok_and(|s| String::from_utf8_lossy(&s.stdout).contains("Battery Power"))
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         false
     }
@@ -88,7 +96,7 @@ mod windows_plein_ecran {
         f.left <= e.left && f.top <= e.top && f.right >= e.right && f.bottom >= e.bottom
     }
 
-    /// Le bureau, la barre des tâches, une fenêtre outil (Alt+Tab, menus), ou Furet lui-même.
+    /// Le bureau, la barre des tâches, une fenêtre outil (Alt+Tab, menus), ou Ellipse lui-même.
     unsafe fn ignoree(fg: HWND) -> bool {
         unsafe {
             if fg == GetShellWindow() || fg == GetDesktopWindow() {
@@ -131,8 +139,8 @@ mod carte_graphique {
     const SEUIL: f64 = 30.0;
     /// Les compteurs donnent un usage moyen entre deux mesures : on ne remesure pas plus souvent.
     const ECART_MIN: Duration = Duration::from_secs(1);
-    /// Les programmes de Furet (le modèle tourne sur la carte graphique) et le bureau de Windows.
-    const IGNORES: [&str; 5] = ["furet.exe", "llama-server.exe", "ffmpeg.exe", "ffprobe.exe", "dwm.exe"];
+    /// Les programmes d'Ellipse (le modèle tourne sur la carte graphique) et le bureau de Windows.
+    const IGNORES: [&str; 5] = ["ellipse.exe", "llama-server.exe", "ffmpeg.exe", "ffprobe.exe", "dwm.exe"];
 
     struct Requete {
         requete: PDH_HQUERY,

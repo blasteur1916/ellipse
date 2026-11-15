@@ -10,7 +10,7 @@ export interface Reglages {
   bibliotheques: boolean;
   pause_batterie: boolean;
   pause_jeu: boolean;
-  /** Lancer Furet avec Windows. */
+  /** Lancer Ellipse avec Windows. */
   demarrage: boolean;
   /** « auto » (la langue de Windows), « en » ou « fr ». */
   langue: string;

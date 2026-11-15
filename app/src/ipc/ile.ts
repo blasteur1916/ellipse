@@ -36,8 +36,8 @@ export interface Ouverture {
 /** Le raccourci ouvre la barre ; elle se ferme (Échap, clic ailleurs, fichier ouvert). */
 export function onBarre(ouvrir: (o: Ouverture) => void, fermer: () => void): Promise<UnlistenFn> {
   return Promise.all([
-    listen<Ouverture>("furet://ouvrir", (e) => ouvrir(e.payload)),
-    listen("furet://fermer", fermer),
+    listen<Ouverture>("ellipse://ouvrir", (e) => ouvrir(e.payload)),
+    listen("ellipse://fermer", fermer),
   ]).then((stops) => () => stops.forEach((stop) => stop()));
 }
 

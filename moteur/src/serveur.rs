@@ -17,6 +17,12 @@ pub const JETONS_IMAGE_DEFAUT: usize = 140;
 /// Sur le processeur, 70 jetons : environ 2,7 fois plus rapide qu'à 280, sans perte visible sur nos tests.
 pub const JETONS_IMAGE_PROCESSEUR: usize = 70;
 
+/// Le programme et ses dossiers : un llama-server pour le processeur, un pour la carte graphique (Vulkan),
+/// sauf sur Mac où le même (Metal) sert aux deux.
+const LLAMA_SERVER: &str = if cfg!(windows) { "llama-server.exe" } else { "llama-server" };
+const DOSSIER_CPU: &str = if cfg!(target_os = "macos") { "llama-metal" } else { "llama-cpu" };
+const DOSSIER_GPU: &str = if cfg!(target_os = "macos") { "llama-metal" } else { "llama-vulkan" };
+
 pub struct Serveur {
     processus: Child,
     client: Client,
@@ -35,6 +41,16 @@ impl Serveur {
     /// Démarre sur la meilleure carte graphique Vulkan, sinon sur le processeur.
     /// Jetons par image : `jetons_image` s'il est donné, sinon 140 sur carte graphique et 70 sur processeur.
     pub fn demarrer(racine: &Path, forcer_cpu: bool, jetons_image: Option<usize>, journal: &Path) -> Result<Self> {
+        // Mac : la carte graphique (Metal) est toujours là, et le même llama-server sert aussi au processeur.
+        #[cfg(target_os = "macos")]
+        if !forcer_cpu {
+            let jetons = jetons_image.unwrap_or(JETONS_IMAGE_DEFAUT);
+            match Self::lancer_indexation(racine, Some("MTL0"), "Apple (Metal)", jetons, journal) {
+                Ok(s) => return Ok(s),
+                Err(e) => eprintln!("Carte graphique indisponible ({e:#}), passage au processeur."),
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
         if !forcer_cpu {
             let jetons = jetons_image.unwrap_or(JETONS_IMAGE_DEFAUT);
             match choisir_carte(racine) {
@@ -54,14 +70,18 @@ impl Serveur {
     pub fn demarrer_requetes(racine: &Path, journal: &Path) -> Result<Self> {
         let coeurs = std::thread::available_parallelism().map(|n| n.get() / 2).unwrap_or(2).clamp(1, 4);
         let modele = racine.join("modeles").join("embeddinggemma-2-Q8_0.gguf");
-        let args = [
+        let mut args = [
             "-m", &modele.to_string_lossy(),
             "--embeddings", "-c", "512", "-b", "512", "-ub", "512", "-np", "1", "-t", &coeurs.to_string(),
             "--no-webui",
         ]
         .map(String::from)
         .to_vec();
-        Self::lancer(racine, "llama-cpu", "processeur (recherche)", args, Duration::from_secs(10), false, journal)
+        // Mac : un seul llama-server (Metal), gardé ici sur le processeur.
+        if cfg!(target_os = "macos") {
+            args.extend(["-ngl".into(), "0".into()]);
+        }
+        Self::lancer(racine, DOSSIER_CPU, "processeur (recherche)", args, Duration::from_secs(10), false, journal)
     }
 
     fn lancer_indexation(racine: &Path, carte: Option<&str>, nom: &str, jetons_image: usize, journal: &Path) -> Result<Self> {
@@ -78,7 +98,7 @@ impl Serveur {
         if let Some(id) = carte {
             args.extend(["--device".into(), id.into(), "-ngl".into(), "99".into()]);
         }
-        let dossier = if carte.is_some() { "llama-vulkan" } else { "llama-cpu" };
+        let dossier = if carte.is_some() { DOSSIER_GPU } else { DOSSIER_CPU };
         Self::lancer(racine, dossier, nom, args, Duration::from_secs(900), true, journal)
     }
 
@@ -91,7 +111,7 @@ impl Serveur {
         basse: bool,
         journal: &Path,
     ) -> Result<Self> {
-        let exe = racine.join("outils").join(dossier).join("llama-server.exe");
+        let exe = racine.join("outils").join(dossier).join(LLAMA_SERVER);
         let port = port_libre()?;
         args.extend(["--host".into(), "127.0.0.1".into(), "--port".into(), port.to_string()]);
 
@@ -103,6 +123,8 @@ impl Serveur {
             .stdout(log.try_clone()?)
             .stderr(log)
             .stdin(Stdio::null())
+            // Linux et macOS : ses bibliothèques sont à côté de lui.
+            .env(if cfg!(target_os = "macos") { "DYLD_LIBRARY_PATH" } else { "LD_LIBRARY_PATH" }, racine.join("outils").join(dossier))
             .spawn()
             .with_context(|| format!("lancement de {}", exe.display()))?;
 
@@ -153,8 +175,7 @@ impl Serveur {
 
     /// Pic de mémoire vive de llama-server, en octets.
     pub fn memoire_max(&self) -> u64 {
-        use std::os::windows::io::AsRawHandle;
-        crate::mesures::pic_memoire(windows::Win32::Foundation::HANDLE(self.processus.as_raw_handle()))
+        crate::mesures::pic_memoire_enfant(&self.processus)
     }
 }
 
@@ -215,9 +236,10 @@ fn port_libre() -> Result<u16> {
     Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
 }
 
-/// Lit `llama-server --list-devices` et garde la carte dédiée avec le plus de mémoire.
+/// Lit `llama-server --list-devices` et garde la carte dédiée avec le plus de mémoire (Vulkan : pas sur Mac).
+#[cfg(not(target_os = "macos"))]
 fn choisir_carte(racine: &Path) -> Option<(String, String)> {
-    let exe = racine.join("outils").join("llama-vulkan").join("llama-server.exe");
+    let exe = racine.join("outils").join(DOSSIER_GPU).join(LLAMA_SERVER);
     let sortie = crate::processus::commande(exe).arg("--list-devices").output().ok()?;
     let texte = String::from_utf8_lossy(&sortie.stdout).to_string() + &String::from_utf8_lossy(&sortie.stderr);
     let mut cartes: Vec<(bool, u64, String, String)> = texte

@@ -10,24 +10,27 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, bail};
-use furet_moteur::disque::{self, ArbreNoms, Changement, IndexDisque};
-use furet_moteur::fichiers::Genre;
-use furet_moteur::noms::{IndexNoms, normaliser};
-use furet_moteur::pertinence::Charabia;
-use furet_moteur::serveur::{Client, Serveur};
-use furet_moteur::vecteurs::{self, IndexRapide};
-use furet_moteur::filtres::{self, date_lisible, taille_lisible};
-use furet_moteur::langue::{francais, t};
-use furet_moteur::{base, lieux, pertinence, visages};
+use ellipse_moteur::disque::{self, ArbreNoms, Changement, IndexDisque};
+use ellipse_moteur::fichiers::Genre;
+use ellipse_moteur::noms::{IndexNoms, normaliser};
+use ellipse_moteur::pertinence::Charabia;
+use ellipse_moteur::serveur::{Client, Serveur};
+use ellipse_moteur::vecteurs::{self, IndexRapide};
+use ellipse_moteur::filtres::{self, date_lisible, taille_lisible};
+use ellipse_moteur::langue::{francais, t};
+use ellipse_moteur::{base, lieux, pertinence, visages};
 use rusqlite::Connection;
 use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
-use crate::{historique, raccourci, reglages};
+use crate::{applications, historique, raccourci, reglages};
 
 /// Résultats affichés : par le nom au-dessus, par le contenu en dessous.
 const NOMS_MAX: usize = 4;
+/// Applications montrées avant les fichiers (et combien en reclasser par l'historique avant de choisir).
+const APPLIS_MAX: usize = 3;
+const APPLIS_A_RECLASSER: usize = 10;
 const CONTENU_MAX: usize = 6;
 /// Par le contenu, on regarde ce nombre de fichiers pour trouver les dossiers qui en rassemblent plusieurs…
 const POUR_LES_DOSSIERS: usize = 40;
@@ -98,7 +101,7 @@ fn etat() -> &'static Etat {
 /// Charge les noms et démarre le serveur de recherche, chacun sur son fil : l'appli est prête tout de suite.
 /// Au premier lancement, le serveur attend que ses outils et son modèle soient téléchargés.
 pub fn demarrer(racine: PathBuf) {
-    furet_moteur::processus::definir_racine(&racine);
+    ellipse_moteur::processus::definir_racine(&racine);
     let chemin_base = racine.join("donnees").join("index.sqlite");
     let _ = ETAT.set(Etat {
         racine,
@@ -141,7 +144,7 @@ pub fn demarrer(racine: PathBuf) {
     });
 }
 
-/// Le dossier de Furet (outils, modèles) et le fichier de l'index.
+/// Le dossier d'Ellipse (outils, modèles) et le fichier de l'index.
 pub fn racine_et_base() -> (PathBuf, PathBuf) {
     let e = etat();
     (e.racine.clone(), e.chemin_base.clone())
@@ -175,7 +178,7 @@ fn entretenir_noms_des_disques() {
     for racine in racines.clone() {
         let index = index.clone();
         std::thread::Builder::new()
-            .name("furet-suivi-disque".into())
+            .name("ellipse-suivi-disque".into())
             .spawn(move || {
                 loop {
                     let fin = disque::surveiller(&racine, |c| {
@@ -404,6 +407,34 @@ fn ligne(chemin: &str, position: String, extrait: Option<String>, dossier: bool,
     }
 }
 
+/// Une application trouvée (voir `applications` : ce qui la lance donne aussi son icône).
+fn ligne_appli(a: &applications::Appli) -> Ligne {
+    let mut h = DefaultHasher::new();
+    a.chemin.hash(&mut h);
+    let cle = format!("{:016x}", h.finish());
+    let mut offerts = verrou(&etat().offerts);
+    if offerts.len() > OFFERTS_MAX {
+        offerts.clear();
+    }
+    offerts.insert(cle.clone(), PathBuf::from(&a.chemin));
+    Ligne {
+        nom: a.nom.clone(),
+        dossier: t("Application", "Application").into(),
+        genre: "application",
+        position: String::new(),
+        extrait: None,
+        repere: None,
+        miniature: crate::miniatures::adresse(&cle),
+        cle,
+    }
+}
+
+/// Un raccourci du menu Démarrer : l'application est déjà proposée en tête.
+fn raccourci_du_menu(chemin: &Path) -> bool {
+    let c = chemin.to_string_lossy().to_lowercase();
+    c.ends_with(".lnk") && c.contains(r"\start menu\programs\")
+}
+
 /// Par le nom : tous les disques (quelques millisecondes pour près de 2 millions de noms) ; s'il manque des
 /// résultats, les dossiers indexés avec une faute de frappe tolérée (trop lent sur les disques entiers).
 /// Sur un fil à part : l'interface ne se fige jamais, même quand un filtre fait lire le disque.
@@ -421,6 +452,17 @@ fn noms(texte: &str) -> Vec<Ligne> {
     let (texte, filtre) = (&analyse.reste, &analyse.filtre);
     if texte.is_empty() {
         return Vec::new();
+    }
+    // Les applications d'abord (sauf avec un filtre : « photos 2024 » cherche des fichiers), celles qu'on
+    // ouvre souvent depuis Ellipse en tête.
+    let mut lignes: Vec<Ligne> = Vec::new();
+    if filtre.est_vide() {
+        let mut applis = applications::chercher(texte, APPLIS_A_RECLASSER);
+        for (score, a) in applis.iter_mut() {
+            *score += historique::bonus(Path::new(&a.chemin));
+        }
+        applis.sort_by(|a, b| b.0.total_cmp(&a.0));
+        lignes.extend(applis.iter().take(APPLIS_MAX).map(|(_, a)| ligne_appli(a)));
     }
     let large = if filtre.est_vide() { NOMS_A_RECLASSER } else { NOMS_A_FILTRER };
     let disque = e.disque.read().unwrap_or_else(|e| e.into_inner()).clone();
@@ -445,17 +487,19 @@ fn noms(texte: &str) -> Vec<Ligne> {
         }
     }
     reclasser(texte, &mut candidats);
-    candidats
-        .into_iter()
-        // Le mot cherché au milieu d'un autre, dans les dossiers des programmes (« systemmanufacturers.h » pour
-        // « facture ») : jamais ce qu'on cherche. Mieux vaut rien.
-        .filter(|(score, _, _)| *score >= NOM_SCORE_MIN)
-        .take(NOMS_MAX)
-        .map(|(_, c, dossier)| ligne(&c.to_string_lossy(), String::new(), None, dossier, None))
-        .collect()
+    lignes.extend(
+        candidats
+            .into_iter()
+            // Le mot cherché au milieu d'un autre, dans les dossiers des programmes (« systemmanufacturers.h »
+            // pour « facture ») : jamais ce qu'on cherche. Mieux vaut rien.
+            .filter(|(score, c, _)| *score >= NOM_SCORE_MIN && !raccourci_du_menu(c))
+            .take(NOMS_MAX)
+            .map(|(_, c, dossier)| ligne(&c.to_string_lossy(), String::new(), None, dossier, None)),
+    );
+    lignes
 }
 
-/// Affine le classement par le nom : les fichiers souvent ouverts depuis Furet d'abord, puis ceux des
+/// Affine le classement par le nom : les fichiers souvent ouverts depuis Ellipse d'abord, puis ceux des
 /// dossiers indexés et du dossier de l'utilisateur, et le nom exact (« budget » → « budget.xlsx » avant
 /// « budget prévisionnel 2019.xlsx »). Rien n'est lu sur le disque.
 fn reclasser(texte: &str, candidats: &mut [(f32, PathBuf, bool)]) {
@@ -490,7 +534,7 @@ fn quand(secondes: u64) -> String {
     }
 }
 
-/// Les fichiers ouverts récemment depuis Furet, pour la barre vide.
+/// Les fichiers ouverts récemment depuis Ellipse, pour la barre vide.
 #[tauri::command]
 pub async fn recents() -> Vec<Ligne> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -710,8 +754,13 @@ fn majuscule(prenom: &str) -> String {
 /// Ouvre un fichier proposé, ou avec `dossier` le montre dans l'Explorateur ; la barre se ferme.
 #[tauri::command]
 pub fn ouvrir_fichier(app: AppHandle, cle: String, dossier: bool) -> Result<(), String> {
-    let chemin = verrou(&etat().offerts).get(&cle).cloned().ok_or(furet_moteur::langue::t("fichier inconnu : cherchez à nouveau", "unknown file: search again"))?;
+    let chemin = verrou(&etat().offerts).get(&cle).cloned().ok_or(ellipse_moteur::langue::t("fichier inconnu : cherchez à nouveau", "unknown file: search again"))?;
     historique::noter(&chemin);
+    if applications::est_appli(&chemin) {
+        applications::lancer(&chemin).map_err(|e| e.to_string())?;
+        raccourci::fermer(&app, false);
+        return Ok(());
+    }
     let ouvreur = app.opener();
     let resultat = if dossier {
         ouvreur.reveal_item_in_dir(&chemin)

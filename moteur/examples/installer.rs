@@ -1,10 +1,10 @@
 //! Essai : installe tous les paquets dans un dossier vide, comme au premier lancement.
-//! cargo run --release -p furet-moteur --example installer -- <dossier>
+//! cargo run --release -p ellipse-moteur --example installer -- <dossier>
 
 use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
-use furet_moteur::installation::{self, Groupe};
+use ellipse_moteur::installation::{self, Groupe};
 
 fn main() -> anyhow::Result<()> {
     let racine = std::path::PathBuf::from(std::env::args().nth(1).expect("dossier"));

@@ -1,12 +1,12 @@
 //! Essai : le temps de chaque étape d'une recherche par le contenu, comme dans l'appli (index rapide chargé,
 //! serveur léger sur le processeur). N'affiche que des durées et des nombres.
-//! cargo run --release -p furet-moteur --example banc_recherche
+//! cargo run --release -p ellipse-moteur --example banc_recherche
 use std::path::Path;
 use std::time::Instant;
 
-use furet_moteur::filtres::Filtre;
-use furet_moteur::vecteurs::IndexRapide;
-use furet_moteur::{base, pertinence, serveur::Serveur};
+use ellipse_moteur::filtres::Filtre;
+use ellipse_moteur::vecteurs::IndexRapide;
+use ellipse_moteur::{base, pertinence, serveur::Serveur};
 
 fn main() -> anyhow::Result<()> {
     let racine = Path::new(r"D:\furet");
@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
     println!("index rapide : {} vecteurs chargés en {:.0} ms", index.len(), t.elapsed().as_secs_f64() * 1000.0);
-    let serveur = Serveur::demarrer_requetes(racine, &std::env::temp_dir().join("furet-banc.log"))?;
+    let serveur = Serveur::demarrer_requetes(racine, &std::env::temp_dir().join("ellipse-banc.log"))?;
     let client = serveur.client();
     let filtre = Filtre::default();
     let requetes = [
