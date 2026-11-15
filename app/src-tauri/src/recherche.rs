@@ -440,6 +440,7 @@ fn raccourci_du_menu(chemin: &Path) -> bool {
 /// Sur un fil à part : l'interface ne se fige jamais, même quand un filtre fait lire le disque.
 #[tauri::command]
 pub async fn chercher_noms(texte: String) -> Vec<Ligne> {
+    log::info!("ESSAI noms appelée");
     tauri::async_runtime::spawn_blocking(move || noms(&texte)).await.unwrap_or_default()
 }
 
@@ -592,7 +593,15 @@ pub async fn chercher_contenu(texte: String) -> Result<Vec<Ligne>, String> {
     tauri::async_runtime::spawn_blocking(move || contenu(&texte))
         .await
         .map_err(|e| e.to_string())?
-        .map_err(|e| format!("{e:#}"))
+        .inspect(|l| log::info!("ESSAI contenu : {} ligne(s)", l.len()))
+        .map_err(|e| {
+            let message = format!("{e:#}");
+            // Une recherche dépassée (on tape vite) n'est pas une erreur.
+            if !message.contains("dépassée") {
+                log::warn!("recherche par le contenu : {message}");
+            }
+            message
+        })
 }
 
 /// Le vecteur d'une recherche, gardé pour les suivantes.
@@ -651,6 +660,7 @@ fn contenu(texte: &str) -> anyhow::Result<Vec<Ligne>> {
     let seuil = e.charabia.get().map_or(pertinence::SEUIL, |c| c.seuil(&vecteur));
     // Plus qu'affiché : pour repérer les dossiers, et l'interface retire ceux déjà trouvés par leur nom.
     let requete = base::Requete { vecteur: &vecteur, texte, n: POUR_LES_DOSSIERS, filtre, seuil };
+    log::info!("ESSAI seuil {seuil:.3} (charabia chargé : {})", e.charabia.get().is_some());
     let rapide = e.rapide.read().unwrap_or_else(|e| e.into_inner());
     let (trouves, personnes, au_lieu) = avec_lecture(|b| {
         let trouves = base::chercher(b, &requete, rapide.as_ref())?.0;
@@ -678,6 +688,7 @@ fn contenu(texte: &str) -> anyhow::Result<Vec<Ligne>> {
             }
             None => Vec::new(),
         };
+        log::info!("ESSAI {} trouvé(s) par le contenu", trouves.len());
         Ok((trouves, personnes, au_lieu))
     })?;
     drop(rapide);

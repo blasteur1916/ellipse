@@ -187,6 +187,7 @@ pub fn ile_region(fenetre: WebviewWindow, rects: Vec<Rect>) -> Result<(), String
     if rects.len() > RECTANGLES_MAX {
         return Err(format!("trop de rectangles : {}", rects.len()));
     }
+    log::info!("ESSAI région : {} rectangle(s)", rects.len());
     let r = if rects.is_empty() { fenetre.hide() } else { fenetre.show() };
     r.map_err(|e| e.to_string())
 }

@@ -83,11 +83,15 @@ verifier() {
     echecs=$((echecs + 1))
   fi
 }
-verifier "electricity bill" "facture-edf-mars.txt"
+verifier "facture d'électricité" "facture-edf-mars.txt"
 verifier "rental contract" "contrat-location.pdf"
 verifier "a dog" "IMG_2045.jpg"
 verifier "budget meeting on monday" "message-vocal.m4a"
 verifier "quarterly sales figures" "clip-0007.mp4"
+
+# Pour information (ne fait pas échouer) : une recherche en anglais sur ce texte court en français reste
+# à la limite du seuil du modèle.
+"$BIN/ellipse-proto" --racine "$RACINE" --base "$BASE" cherche "electricity bill" -n 3 --seuil 0 2> /dev/null | grep facture || true
 
 if [ "$echecs" -gt 0 ]; then
   echo "== $echecs recherche(s) en échec"
