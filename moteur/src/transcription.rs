@@ -41,7 +41,8 @@ impl Transcripteur {
         let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
         let log = File::create(journal)?;
         let debut = Instant::now();
-        let mut processus = crate::processus::commande_basse(&exe)
+        let mut commande = crate::processus::commande_basse(&exe);
+        commande
             .arg(format!("--port={port}"))
             .arg(format!("--num-work-threads={requetes}"))
             .arg(format!("--max-batch-size={requetes}"))
@@ -54,9 +55,8 @@ impl Transcripteur {
             .env(if cfg!(target_os = "macos") { "DYLD_LIBRARY_PATH" } else { "LD_LIBRARY_PATH" }, dossier.join("lib"))
             .stdin(Stdio::null())
             .stdout(log.try_clone()?)
-            .stderr(log)
-            .spawn()
-            .with_context(|| format!("lancement de {}", exe.display()))?;
+            .stderr(log);
+        let mut processus = crate::processus::lancer_lie(commande).with_context(|| format!("lancement de {}", exe.display()))?;
         // Le port n'accepte les connexions qu'une fois le modèle chargé.
         while TcpStream::connect(("127.0.0.1", port)).is_err() {
             if let Some(code) = processus.try_wait()? {

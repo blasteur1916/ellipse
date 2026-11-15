@@ -255,6 +255,12 @@ pub fn fermer(app: &AppHandle, rendre: bool) {
     let _ = app.emit(EVT_FERMER, ());
 }
 
+/// L'île est ouverte (ou en train de s'ouvrir).
+#[cfg_attr(windows, allow(dead_code))]
+pub fn est_ouvert() -> bool {
+    OUVERT.load(Ordering::Relaxed)
+}
+
 /// L'interface écoute maintenant : l'île déjà ouverte lui est renvoyée.
 #[tauri::command]
 pub fn ile_prete(app: AppHandle) {

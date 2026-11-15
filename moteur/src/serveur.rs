@@ -118,15 +118,14 @@ impl Serveur {
         let log = File::create(journal).context("création du journal du serveur")?;
         let debut = Instant::now();
         let mut commande = if basse { crate::processus::commande_basse(&exe) } else { crate::processus::commande(&exe) };
-        let processus = commande
+        commande
             .args(&args)
             .stdout(log.try_clone()?)
             .stderr(log)
             .stdin(Stdio::null())
             // Linux et macOS : ses bibliothèques sont à côté de lui.
-            .env(if cfg!(target_os = "macos") { "DYLD_LIBRARY_PATH" } else { "LD_LIBRARY_PATH" }, racine.join("outils").join(dossier))
-            .spawn()
-            .with_context(|| format!("lancement de {}", exe.display()))?;
+            .env(if cfg!(target_os = "macos") { "DYLD_LIBRARY_PATH" } else { "LD_LIBRARY_PATH" }, racine.join("outils").join(dossier));
+        let processus = crate::processus::lancer_lie(commande).with_context(|| format!("lancement de {}", exe.display()))?;
 
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_global(Some(delai))

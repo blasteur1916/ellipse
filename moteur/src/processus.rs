@@ -22,9 +22,47 @@ pub fn commande(programme: impl AsRef<OsStr>) -> Command {
     let mut c = Command::new(programme);
     #[cfg(windows)]
     c.creation_flags(CREATE_NO_WINDOW);
-    #[cfg(unix)]
-    lier_a_ellipse(&mut c);
     c
+}
+
+/// Lance un programme qui reste chargé tant qu'Ellipse en a besoin (llama-server, transcription) : il est
+/// arrêté si Ellipse disparaît, même brutalement. Linux : `PR_SET_PDEATHSIG` suit le fil qui lance le
+/// programme, pas le programme lui-même — un serveur lancé par un fil qui se termine serait arrêté aussitôt.
+/// Ces programmes sont donc lancés par un fil à part, qui ne se termine jamais. (Windows : voir
+/// `lier_au_programme` ; macOS n'a pas d'équivalent, ils sont arrêtés quand Ellipse s'en sépare.)
+pub fn lancer_lie(mut c: Command) -> std::io::Result<std::process::Child> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        use std::sync::mpsc::{Sender, channel};
+        use std::sync::{Mutex, OnceLock};
+        type Demande = (Command, Sender<std::io::Result<std::process::Child>>);
+        static LANCEUR: OnceLock<Mutex<Sender<Demande>>> = OnceLock::new();
+        // SAFETY : `prctl` ne fait qu'appeler le système, ce qui est permis entre fork et exec.
+        unsafe {
+            c.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                Ok(())
+            });
+        }
+        let envoi = LANCEUR.get_or_init(|| {
+            let (envoi, reception) = channel::<Demande>();
+            let _ = std::thread::Builder::new().name("ellipse-lanceur".into()).spawn(move || {
+                for (mut c, retour) in reception {
+                    let _ = retour.send(c.spawn());
+                }
+            });
+            Mutex::new(envoi)
+        });
+        let (retour, reponse) = channel();
+        let envoye = envoi.lock().unwrap_or_else(|e| e.into_inner()).send((c, retour));
+        if envoye.is_err() {
+            return Err(std::io::Error::other("le fil des lancements s'est arrêté"));
+        }
+        reponse.recv().map_err(|_| std::io::Error::other("le fil des lancements s'est arrêté"))?
+    }
+    #[cfg(not(target_os = "linux"))]
+    c.spawn()
 }
 
 static RACINE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
@@ -52,7 +90,6 @@ pub fn commande_basse(programme: impl AsRef<OsStr>) -> Command {
     c.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
     #[cfg(unix)]
     {
-        lier_a_ellipse(&mut c);
         use std::os::unix::process::CommandExt;
         // SAFETY : `setpriority` ne fait qu'appeler le système, ce qui est permis entre fork et exec.
         unsafe {
@@ -63,26 +100,6 @@ pub fn commande_basse(programme: impl AsRef<OsStr>) -> Command {
         }
     }
     c
-}
-
-/// Linux : le programme lancé est arrêté si Ellipse disparaît, même brutalement (l'équivalent de
-/// `lier_au_programme` sous Windows). macOS n'a pas cette possibilité : les serveurs sont arrêtés quand
-/// Ellipse s'en sépare (Drop).
-#[cfg(unix)]
-fn lier_a_ellipse(c: &mut Command) {
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::process::CommandExt;
-        // SAFETY : `prctl` ne fait qu'appeler le système, ce qui est permis entre fork et exec.
-        unsafe {
-            c.pre_exec(|| {
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
-                Ok(())
-            });
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
-    let _ = c;
 }
 
 /// Tout le programme en priorité basse (le prototype en ligne de commande, qui ne fait qu'indexer).
@@ -123,7 +140,7 @@ pub fn fil_en_priorite_basse() {
 /// Lie les programmes lancés à celui-ci : quand il s'arrête, même brutalement (plantage, Ctrl+C,
 /// fin de tâche), Windows arrête aussi llama-server, ffmpeg et la transcription. Sans cela, un
 /// llama-server de 1,5 Go pourrait rester en mémoire. À appeler une fois, au démarrage. (Linux : chaque
-/// programme est lié à son lancement, voir `lier_a_ellipse`.)
+/// serveur est lié à son lancement, voir `lancer_lie`.)
 pub fn lier_au_programme() {
     #[cfg(windows)]
     {

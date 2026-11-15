@@ -187,7 +187,11 @@ pub fn ile_region(fenetre: WebviewWindow, rects: Vec<Rect>) -> Result<(), String
     if rects.len() > RECTANGLES_MAX {
         return Err(format!("trop de rectangles : {}", rects.len()));
     }
-    log::info!("ESSAI région : {} rectangle(s)", rects.len());
+    // La page qui se charge annonce « fermée » alors que l'accueil vient d'être demandé : la fenêtre reste
+    // montrée (cachée, la page ne calculerait plus ses animations et ne redemanderait jamais à l'être).
+    if rects.is_empty() && crate::raccourci::est_ouvert() {
+        return Ok(());
+    }
     let r = if rects.is_empty() { fenetre.hide() } else { fenetre.show() };
     r.map_err(|e| e.to_string())
 }
