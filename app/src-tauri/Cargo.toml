@@ -1,6 +1,6 @@
 [package]
 name = "ellipse"
-version = "0.9.1"
+version = "0.10.0"
 description = "Retrouve n'importe quel fichier par ce qu'il contient ou par son nom, entièrement sur le PC."
 authors = ["Ellipse contributors"]
 edition.workspace = true

@@ -19,6 +19,7 @@ const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
 const GENTILLESSE: libc::c_int = 10;
 
 pub fn commande(programme: impl AsRef<OsStr>) -> Command {
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut c = Command::new(programme);
     #[cfg(windows)]
     c.creation_flags(CREATE_NO_WINDOW);
@@ -28,8 +29,8 @@ pub fn commande(programme: impl AsRef<OsStr>) -> Command {
 /// Lance un programme qui reste chargé tant qu'Ellipse en a besoin (llama-server, transcription) : il est
 /// arrêté si Ellipse disparaît, même brutalement. Linux : `PR_SET_PDEATHSIG` suit le fil qui lance le
 /// programme, pas le programme lui-même — un serveur lancé par un fil qui se termine serait arrêté aussitôt.
-/// Ces programmes sont donc lancés par un fil à part, qui ne se termine jamais. (Windows : voir
-/// `lier_au_programme` ; macOS n'a pas d'équivalent, ils sont arrêtés quand Ellipse s'en sépare.)
+/// Ces programmes sont donc lancés par un fil à part, qui ne se termine jamais. Windows : ils entrent dans le
+/// job préparé par `lier_au_programme`. macOS n'a pas d'équivalent : ils sont arrêtés quand Ellipse s'en sépare.
 pub fn lancer_lie(mut c: Command) -> std::io::Result<std::process::Child> {
     #[cfg(target_os = "linux")]
     {
@@ -61,7 +62,19 @@ pub fn lancer_lie(mut c: Command) -> std::io::Result<std::process::Child> {
         }
         reponse.recv().map_err(|_| std::io::Error::other("le fil des lancements s'est arrêté"))?
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows::Win32::Foundation::HANDLE;
+        use windows::Win32::System::JobObjects::AssignProcessToJobObject;
+        let enfant = c.spawn()?;
+        if let Some(&job) = JOB.get() {
+            // SAFETY : le job vit jusqu'à la fin du programme, l'enfant vient d'être lancé.
+            let _ = unsafe { AssignProcessToJobObject(HANDLE(job as *mut _), HANDLE(enfant.as_raw_handle())) };
+        }
+        Ok(enfant)
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     c.spawn()
 }
 
@@ -137,20 +150,20 @@ pub fn fil_en_priorite_basse() {
     }
 }
 
-/// Lie les programmes lancés à celui-ci : quand il s'arrête, même brutalement (plantage, Ctrl+C,
-/// fin de tâche), Windows arrête aussi llama-server, ffmpeg et la transcription. Sans cela, un
-/// llama-server de 1,5 Go pourrait rester en mémoire. À appeler une fois, au démarrage. (Linux : chaque
-/// serveur est lié à son lancement, voir `lancer_lie`.)
+/// Prépare le « job » Windows où vont les serveurs d'Ellipse (`lancer_lie`) : quand Ellipse s'arrête, même
+/// brutalement (plantage, Ctrl+C, fin de tâche), Windows arrête aussi llama-server et la transcription. Sans
+/// cela, un llama-server de 1,5 Go pourrait rester en mémoire. À appeler une fois, au démarrage. Ellipse
+/// lui-même n'y entre pas : tout ce qu'il lance passerait sinon dans le job, l'installateur d'une mise à jour
+/// compris, qui était tué dès qu'Ellipse se fermait pour le laisser faire. (Linux : voir `lancer_lie`.)
 pub fn lier_au_programme() {
     #[cfg(windows)]
     {
         use windows::Win32::System::JobObjects::{
-            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
+            CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            JobObjectExtendedLimitInformation, SetInformationJobObject,
         };
-        use windows::Win32::System::Threading::GetCurrentProcess;
         // SAFETY : la poignée du job reste ouverte jusqu'à la fin du programme (c'est voulu : sa
-        // fermeture, par Windows à la sortie, est ce qui arrête les programmes enfants).
+        // fermeture, par Windows à la sortie, est ce qui arrête les serveurs).
         unsafe {
             let Ok(job) = CreateJobObjectW(None, None) else { return };
             let mut limites = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
@@ -161,7 +174,12 @@ pub fn lier_au_programme() {
                 &limites as *const _ as *const std::ffi::c_void,
                 std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
             );
-            let _ = AssignProcessToJobObject(job, GetCurrentProcess());
+            let _ = JOB.set(job.0 as isize);
         }
     }
 }
+
+/// Le job des serveurs (sa poignée, en nombre : une poignée Windows ne se partage pas entre fils telle quelle).
+#[cfg(windows)]
+static JOB: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
+
